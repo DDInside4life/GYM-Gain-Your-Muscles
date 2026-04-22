@@ -1,0 +1,75 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gym}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gym}
+      POSTGRES_DB: ${POSTGRES_DB:-gym}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gym} -d ${POSTGRES_DB:-gym}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5432"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gym}:${POSTGRES_PASSWORD:-gym}@db:5432/${POSTGRES_DB:-gym}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SEED_EXERCISES: ${SEED_EXERCISES:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             if [ \"$$SEED_EXERCISES\" = \"1\" ]; then python -m app.data.seed_exercises; fi &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

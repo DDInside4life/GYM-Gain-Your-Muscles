@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f7f6f4;
+  --fg: #171717;
+  --muted: #6b7280;
+  --card: rgba(255,255,255,0.7);
+  --border: rgba(0,0,0,0.08);
+  --ring: rgba(255, 69, 51, 0.35);
+}
+.dark {
+  --bg: #0b0a12;
+  --fg: #eceaf5;
+  --muted: #9aa0b4;
+  --card: rgba(20,18,34,0.55);
+  --border: rgba(255,255,255,0.06);
+  --ring: rgba(139, 92, 246, 0.55);
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.dark body {
+  background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(139,92,246,0.18), transparent 60%),
+    radial-gradient(800px 400px at 10% 10%, rgba(255,95,76,0.10), transparent 60%),
+    #0b0a12;
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-xl border;
+    background: var(--card);
+    border-color: var(--border);
+  }
+  .glass-card {
+    @apply glass rounded-2xl shadow-glass dark:shadow-glass-dark;
+  }
+  .display { font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; }
+  .text-muted { color: var(--muted); }
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.25); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.45); }

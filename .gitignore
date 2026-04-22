@@ -1,0 +1,28 @@
+# env / secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# node / next
+node_modules/
+.next/
+out/
+build/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+Thumbs.db
+*.log
