@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import settings
 from app.models.base import Base
 from app.models import (  # noqa: F401 — register metadata
-    user, exercise, workout, nutrition, blog, forum, progress,
+    user, exercise, workout, nutrition, blog, forum, progress, ai_event,
 )
 
 config = context.config

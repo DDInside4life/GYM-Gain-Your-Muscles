@@ -8,6 +8,8 @@ from app.schemas.common import ORMModel, TimestampMixin
 
 class ExerciseBase(BaseModel):
     slug: str = Field(min_length=2, max_length=80)
+    name_ru: str = Field(min_length=2, max_length=120)
+    name_en: str | None = Field(default=None, max_length=120)
     name: str = Field(min_length=2, max_length=120)
     description: str = ""
     primary_muscle: MuscleGroup

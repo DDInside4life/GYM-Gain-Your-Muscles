@@ -1,5 +1,5 @@
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost/api";
+const envApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+export const API_URL = envApiUrl && envApiUrl.length > 0 ? envApiUrl : "/api";
 
 export const WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { User, Dumbbell, Salad, LineChart } from "lucide-react";
+import { User, Dumbbell, Salad, LineChart, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 
 const tabs = [
   { href: "/dashboard", label: "Профиль", icon: User },
   { href: "/dashboard/workouts", label: "Тренировки", icon: Dumbbell },
+  { href: "/dashboard/exercises", label: "Упражнения", icon: ListChecks },
   { href: "/dashboard/nutrition", label: "Питание", icon: Salad },
   { href: "/dashboard/progress", label: "Прогресс", icon: LineChart },
 ];

@@ -11,6 +11,8 @@ export type Goal = "muscle_gain" | "fat_loss" | "strength" | "endurance" | "gene
 export type Exercise = {
   id: number;
   slug: string;
+  name_ru: string;
+  name_en?: string | null;
   name: string;
   description: string;
   primary_muscle: MuscleGroup;
@@ -27,10 +29,15 @@ export type WorkoutExercise = {
   id: number;
   position: number;
   sets: number;
+  reps_min: number;
+  reps_max: number;
   reps: string;
   weight_kg: number | null;
   rest_sec: number;
   notes: string;
+  target_percent_1rm?: number | null;
+  is_test_set?: boolean;
+  test_instruction?: string;
   exercise: Exercise;
 };
 
@@ -40,6 +47,8 @@ export type WorkoutDay = {
   title: string;
   focus: string;
   is_rest: boolean;
+  week_index: number;
+  phase: "test" | "work";
   exercises: WorkoutExercise[];
 };
 
@@ -47,10 +56,35 @@ export type WorkoutPlan = {
   id: number;
   name: string;
   week_number: number;
+  month_index: number;
+  cycle_week: number;
+  phase: "test" | "work";
   split_type: string;
   is_active: boolean;
   days: WorkoutDay[];
   params: Record<string, unknown>;
+};
+
+export type WorkoutDayUpdate = {
+  exercises: Array<{
+    id?: number;
+    exercise_id: number;
+    sets: number;
+    reps_min: number;
+    reps_max: number;
+    weight_kg: number | null;
+    rest_sec: number;
+    notes: string;
+    target_percent_1rm?: number | null;
+    is_test_set?: boolean;
+    test_instruction?: string;
+  }>;
+};
+
+export type WorkoutResultInput = {
+  workout_exercise_id: number;
+  reps_completed: number;
+  weight_kg: number;
 };
 
 export type GenerateInput = {

@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.exercise import Equipment, Exercise, ExerciseCategory, MuscleGroup
 from app.models.user import Experience, Goal, User
-from app.models.workout import WorkoutDay, WorkoutExercise, WorkoutPlan
+from app.models.workout import ProgramPhase, WorkoutDay, WorkoutExercise, WorkoutPlan
 from app.repositories.exercise import ExerciseRepository
-from app.repositories.workout import WorkoutPlanRepository
+from app.repositories.workout import WorkoutPlanRepository, WorkoutResultRepository
 from app.schemas.workout import WorkoutGenerateInput
 from app.services.workout.rules import (
     DEFAULT_EQUIPMENT, EXPERIENCE_INTENSITY_MOD, EXPERIENCE_VOLUME_MOD,
@@ -19,6 +19,8 @@ from app.services.workout.rules import (
 from app.services.workout.splits import SPLITS, pick_split
 
 MIN_PER_DAY, MAX_PER_DAY = 4, 6
+TOTAL_WEEKS = 5
+TEST_WEEKS = {1, 5}
 
 MUSCLE_LOAD_FACTOR: dict[MuscleGroup, float] = {
     MuscleGroup.legs: 1.20,
@@ -57,12 +59,13 @@ class GeneratedDay:
 
 
 class WorkoutGenerator:
-    """Deterministic per-user weekly plan generator."""
+    """Deterministic per-user monthly plan generator with test weeks."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.exercises = ExerciseRepository(db)
         self.plans = WorkoutPlanRepository(db)
+        self.results = WorkoutResultRepository(db)
 
     @staticmethod
     def _seed(user_id: int, week: int) -> int:
@@ -151,7 +154,35 @@ class WorkoutGenerator:
         )
         return round_to_plate(raw)
 
-    def _build_day(
+    @staticmethod
+    def _epley_1rm(weight: float, reps: int) -> float:
+        return weight * (1 + reps / 30.0)
+
+    def _target_percent(self, goal: Goal, week_index: int) -> float:
+        if goal == Goal.strength:
+            return min(0.9, 0.8 + (0.03 * (week_index - 2)))
+        return min(0.8, 0.65 + (0.05 * (week_index - 2)))
+
+    async def _working_weight(
+        self,
+        user: User,
+        ex: Exercise,
+        experience: Experience,
+        goal: Goal,
+        week_index: int,
+    ) -> tuple[float | None, float | None]:
+        if ex.equipment == Equipment.bodyweight or ex.category == ExerciseCategory.cardio:
+            return None, None
+        latest = await self.results.by_exercise_latest(user.id, ex.id)
+        if latest is not None:
+            return round_to_plate(latest.estimated_1rm * self._target_percent(goal, week_index)), self._target_percent(goal, week_index)
+        base = self._estimate_weight(user, ex, experience, goal)
+        if base is None:
+            return None, None
+        fallback_1rm = self._epley_1rm(base, 10)
+        return round_to_plate(fallback_1rm * self._target_percent(goal, week_index)), self._target_percent(goal, week_index)
+
+    async def _build_day(
         self,
         *,
         day_index: int,
@@ -163,10 +194,11 @@ class WorkoutGenerator:
         user: User,
         experience: Experience,
         goal: Goal,
+        week_index: int,
         rng: random.Random,
     ) -> GeneratedDay:
         scheme = GOAL_SCHEME[goal]
-        target_sets = clamp_sets(round(scheme.sets * EXPERIENCE_VOLUME_MOD[experience]))
+        target_sets = clamp_sets(round(scheme.sets * EXPERIENCE_VOLUME_MOD[experience])) if week_index not in TEST_WEEKS else 1
 
         chosen: list[Exercise] = []
         used: set[int] = set()
@@ -181,18 +213,30 @@ class WorkoutGenerator:
 
         chosen = self._fill_to_min(chosen, pool, equipment, contras, used)
 
-        exercises = [
-            GeneratedExercise(
+        exercises: list[GeneratedExercise] = []
+        for ex in chosen[:MAX_PER_DAY]:
+            if week_index in TEST_WEEKS:
+                exercises.append(GeneratedExercise(
+                    exercise=ex,
+                    sets=1,
+                    reps_min=6,
+                    reps_max=20,
+                    rest=150,
+                    notes="1 set to technical failure. Save achieved reps.",
+                    weight_kg=self._estimate_weight(user, ex, experience, goal),
+                ))
+                continue
+            working_weight, _ = await self._working_weight(user, ex, experience, goal, week_index)
+            fatigue_delta = -1 if week_index == 4 else 0
+            exercises.append(GeneratedExercise(
                 exercise=ex,
-                sets=target_sets,
-                reps_min=scheme.reps_min,
-                reps_max=scheme.reps_max,
-                rest=scheme.rest_sec,
-                notes=f"RPE ~{scheme.rpe}",
-                weight_kg=self._estimate_weight(user, ex, experience, goal),
-            )
-            for ex in chosen[:MAX_PER_DAY]
-        ]
+                sets=clamp_sets(target_sets + fatigue_delta),
+                reps_min=scheme.reps_min if goal == Goal.strength else max(6, scheme.reps_min + (4 - week_index)),
+                reps_max=scheme.reps_max if goal == Goal.strength else max(8, scheme.reps_max + (4 - week_index)),
+                rest=scheme.rest_sec + (30 if goal == Goal.strength else 0),
+                notes=f"Progressive overload week {week_index}",
+                weight_kg=working_weight,
+            ))
         return GeneratedDay(
             day_index=day_index,
             title=template_title,
@@ -212,35 +256,43 @@ class WorkoutGenerator:
             raise ValueError("Exercise catalogue is empty; seed data missing")
 
         prev = await self.plans.latest_for_user(user.id)
-        next_week = (prev.week_number + 1) if prev else 1
-        rng = random.Random(self._seed(user.id, next_week))
+        next_month = (prev.month_index + 1) if prev else 1
+        rng = random.Random(self._seed(user.id, next_month))
 
         days: list[GeneratedDay] = []
-        for i in range(7):
-            if i < len(template):
-                tmpl = template[i]
-                days.append(self._build_day(
-                    day_index=i,
-                    template_title=tmpl.title,
-                    muscles=tmpl.muscles,
-                    pool=pool,
-                    equipment=equipment,
-                    contras=contras,
-                    user=user,
-                    experience=payload.experience,
-                    goal=payload.goal,
-                    rng=rng,
-                ))
-            else:
-                days.append(GeneratedDay(i, "Rest", "recovery", True))
+        absolute_day = 0
+        for week_index in range(1, TOTAL_WEEKS + 1):
+            week_template = SPLITS[split_key][: payload.days_per_week]
+            for i in range(7):
+                if i < len(week_template):
+                    tmpl = week_template[i]
+                    days.append(await self._build_day(
+                        day_index=absolute_day,
+                        template_title=f"W{week_index} · {tmpl.title}",
+                        muscles=tmpl.muscles,
+                        pool=pool,
+                        equipment=equipment,
+                        contras=contras,
+                        user=user,
+                        experience=payload.experience,
+                        goal=payload.goal,
+                        week_index=week_index,
+                        rng=rng,
+                    ))
+                else:
+                    days.append(GeneratedDay(absolute_day, f"W{week_index} · Rest", "recovery", True))
+                absolute_day += 1
 
         await self.plans.deactivate_all(user.id)
 
         scheme = GOAL_SCHEME[payload.goal]
         plan = WorkoutPlan(
             user_id=user.id,
-            name=f"Week {next_week} · {split_key.replace('_', ' ').title()}",
-            week_number=next_week,
+            name=f"Month {next_month} · {split_key.replace('_', ' ').title()}",
+            week_number=(prev.week_number + TOTAL_WEEKS) if prev else TOTAL_WEEKS,
+            month_index=next_month,
+            cycle_week=1,
+            phase=ProgramPhase.test,
             split_type=split_key,
             is_active=True,
             params={
@@ -253,19 +305,27 @@ class WorkoutGenerator:
                     "sets": scheme.sets, "reps_min": scheme.reps_min, "reps_max": scheme.reps_max,
                     "rest_sec": scheme.rest_sec, "rpe": scheme.rpe,
                 },
+                "cycle": {
+                    "weeks_total": TOTAL_WEEKS,
+                    "test_weeks": sorted(TEST_WEEKS),
+                    "method": "epley+progressive-overload+fatigue-control",
+                },
             },
         )
         self.db.add(plan)
         await self.db.flush()
 
         for gd in days:
+            week_index = (gd.day_index // 7) + 1
             day_row = WorkoutDay(
                 plan_id=plan.id, day_index=gd.day_index,
-                title=gd.title, focus=gd.focus, is_rest=gd.is_rest,
+                title=gd.title, focus=gd.focus, is_rest=gd.is_rest, week_index=week_index,
+                phase=ProgramPhase.test if week_index in TEST_WEEKS else ProgramPhase.work,
             )
             self.db.add(day_row)
             await self.db.flush()
             for pos, ge in enumerate(gd.exercises):
+                percent = self._target_percent(payload.goal, week_index) if week_index not in TEST_WEEKS else None
                 self.db.add(WorkoutExercise(
                     day_id=day_row.id,
                     exercise_id=ge.exercise.id,
@@ -276,6 +336,9 @@ class WorkoutGenerator:
                     weight_kg=ge.weight_kg,
                     rest_sec=ge.rest,
                     notes=ge.notes,
+                    target_percent_1rm=percent,
+                    is_test_set=week_index in TEST_WEEKS,
+                    test_instruction="AMRAP one set; submit result for 1RM." if week_index in TEST_WEEKS else "",
                 ))
 
         await self.db.commit()

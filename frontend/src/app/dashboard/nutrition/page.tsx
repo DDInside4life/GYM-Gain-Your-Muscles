@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Flame, Salad } from "lucide-react";
+import { Brain, Flame, Salad } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
+import { AIExplanationBlock } from "@/components/dashboard/ai-explanation";
+import { aiApi } from "@/features/ai/api";
+import { useAiStatus } from "@/features/ai/use-ai-workout";
+import type { AIExplanation } from "@/features/ai/types";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
 
@@ -35,23 +40,35 @@ export default function NutritionPage() {
     goal: user.goal ?? "muscle_gain",
   });
   const [plan, setPlan] = useState<NutritionPlan | null>(null);
+  const [explanation, setExplanation] = useState<AIExplanation | null>(null);
   const [loading, setLoading] = useState(false);
+  const aiStatus = useAiStatus();
+  const aiAvailable = !!aiStatus?.enabled;
+  const [aiMode, setAiMode] = useState<boolean>(false);
 
   async function generate() {
     setLoading(true);
+    const payload = {
+      ...form,
+      weight_kg: Number(form.weight_kg),
+      height_cm: Number(form.height_cm),
+      age: Number(form.age),
+      activity_factor: Number(form.activity_factor),
+    };
     try {
-      const p = await api<NutritionPlan>("/nutrition/generate", {
-        method: "POST",
-        body: JSON.stringify({
-          ...form,
-          weight_kg: Number(form.weight_kg),
-          height_cm: Number(form.height_cm),
-          age: Number(form.age),
-          activity_factor: Number(form.activity_factor),
-        }),
-        auth: true,
-      });
-      setPlan(p);
+      if (aiMode && aiAvailable) {
+        const res = await aiApi.generateNutrition(payload as never);
+        setPlan(res.plan as unknown as NutritionPlan);
+        setExplanation(res.explanation);
+      } else {
+        const p = await api<NutritionPlan>("/nutrition/generate", {
+          method: "POST",
+          body: JSON.stringify(payload),
+          auth: true,
+        });
+        setPlan(p);
+        setExplanation(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -105,10 +122,27 @@ export default function NutritionPage() {
             </Select>
           </div>
         </div>
+        {aiAvailable && (
+          <div className="mt-4 flex items-center gap-3 p-3 rounded-xl border border-[var(--border)]">
+            <Brain size={16} className="text-brand-500" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold">AI-нутрициолог</div>
+              <div className="text-xs text-muted">
+                Калории и макросы рассчитываются детерминированно; LLM персонализирует приёмы пищи.
+              </div>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={aiMode} onChange={(e) => setAiMode(e.target.checked)} />
+              {aiMode ? <Badge tone="brand">AI</Badge> : <Badge>Rules</Badge>}
+            </label>
+          </div>
+        )}
         <div className="mt-5">
           <Button onClick={generate} disabled={loading}><Flame size={16} /> {loading ? "…" : "Рассчитать"}</Button>
         </div>
       </Card>
+
+      {explanation && <AIExplanationBlock explanation={explanation} />}
 
       {plan && (
         <div className="space-y-4">

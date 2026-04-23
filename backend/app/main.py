@@ -14,11 +14,13 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.limiter import limiter
 from app.core.security import hash_password
+from app.data.seed_content import ensure_seed_content
 from app.models.user import User
 from app.repositories.user import UserRepository
 from app.routes import api_router
 
 logger = logging.getLogger("app")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
 async def _ensure_admin() -> None:
@@ -29,6 +31,7 @@ async def _ensure_admin() -> None:
             if not existing.is_admin:
                 existing.is_admin = True
                 await db.commit()
+            await ensure_seed_content(db, existing.id)
             return
         await repo.add(User(
             email=settings.admin_email,
@@ -38,6 +41,9 @@ async def _ensure_admin() -> None:
             is_admin=True,
         ))
         await db.commit()
+        created = await repo.get_by_email(settings.admin_email)
+        if created is not None:
+            await ensure_seed_content(db, created.id)
 
 
 @asynccontextmanager
@@ -67,14 +73,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["authorization", "content-type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     max_age=3600,
 )
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    logger.info("request %s %s", request.method, request.url.path)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

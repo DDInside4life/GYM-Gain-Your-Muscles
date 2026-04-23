@@ -45,6 +45,8 @@ class Exercise(Base):
     __tablename__ = "exercises"
 
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    name_ru: Mapped[str] = mapped_column(String(120), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(String(120))
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
 

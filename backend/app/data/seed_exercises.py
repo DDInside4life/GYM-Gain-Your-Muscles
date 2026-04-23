@@ -8,235 +8,95 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.models.exercise import Equipment, Exercise, ExerciseCategory, MuscleGroup
 
+
+def ex(
+    slug: str,
+    name_ru: str,
+    name_en: str,
+    primary: MuscleGroup,
+    equipment: Equipment,
+    category: ExerciseCategory,
+    difficulty: int,
+    description: str,
+    secondary: list[str] | None = None,
+) -> dict:
+    return {
+        "slug": slug,
+        "name_ru": name_ru,
+        "name_en": name_en,
+        "name": name_ru,
+        "description": description,
+        "primary_muscle": primary,
+        "secondary_muscles": secondary or [],
+        "equipment": equipment,
+        "category": category,
+        "difficulty": difficulty,
+        "contraindications": [],
+    }
+
+
 SEED: list[dict] = [
-    {
-        "slug": "barbell-back-squat", "name": "Barbell Back Squat",
-        "description": "King of leg exercises. Develops quads, glutes and posterior chain.",
-        "primary_muscle": MuscleGroup.legs,
-        "secondary_muscles": ["glutes", "core", "back"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 4,
-        "contraindications": ["knee", "deep_squat", "spine_load"],
-    },
-    {
-        "slug": "goblet-squat", "name": "Goblet Squat",
-        "description": "Front-loaded squat variation. Beginner-friendly.",
-        "primary_muscle": MuscleGroup.legs,
-        "secondary_muscles": ["glutes", "core"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": ["knee"],
-    },
-    {
-        "slug": "romanian-deadlift", "name": "Romanian Deadlift",
-        "description": "Hip-hinge movement targeting glutes and hamstrings.",
-        "primary_muscle": MuscleGroup.glutes,
-        "secondary_muscles": ["back", "legs"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": ["spine_load", "heavy_deadlift"],
-    },
-    {
-        "slug": "leg-press", "name": "Leg Press",
-        "description": "Machine compound for quads and glutes with low spine load.",
-        "primary_muscle": MuscleGroup.legs, "secondary_muscles": ["glutes"],
-        "equipment": Equipment.machine, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": ["knee"],
-    },
-    {
-        "slug": "walking-lunges", "name": "Walking Lunges",
-        "description": "Unilateral quad/glute builder.",
-        "primary_muscle": MuscleGroup.legs, "secondary_muscles": ["glutes", "core"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": ["knee"],
-    },
-    {
-        "slug": "hip-thrust", "name": "Barbell Hip Thrust",
-        "description": "Glute-dominant bridge movement.",
-        "primary_muscle": MuscleGroup.glutes, "secondary_muscles": ["legs"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": [],
-    },
-    {
-        "slug": "standing-calf-raise", "name": "Standing Calf Raise",
-        "description": "Isolation for gastrocnemius.",
-        "primary_muscle": MuscleGroup.calves, "secondary_muscles": [],
-        "equipment": Equipment.machine, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": [],
-    },
-    {
-        "slug": "bench-press", "name": "Barbell Bench Press",
-        "description": "Classic horizontal press for chest mass and strength.",
-        "primary_muscle": MuscleGroup.chest, "secondary_muscles": ["triceps", "shoulders"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": ["shoulder", "bench_heavy"],
-    },
-    {
-        "slug": "dumbbell-bench-press", "name": "Dumbbell Bench Press",
-        "description": "Chest press with a larger range of motion than the barbell.",
-        "primary_muscle": MuscleGroup.chest, "secondary_muscles": ["triceps"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": ["shoulder"],
-    },
-    {
-        "slug": "incline-dumbbell-press", "name": "Incline Dumbbell Press",
-        "description": "Upper chest emphasis.",
-        "primary_muscle": MuscleGroup.chest, "secondary_muscles": ["shoulders", "triceps"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": ["shoulder"],
-    },
-    {
-        "slug": "push-up", "name": "Push-Up",
-        "description": "Bodyweight horizontal press.",
-        "primary_muscle": MuscleGroup.chest, "secondary_muscles": ["triceps", "core"],
-        "equipment": Equipment.bodyweight, "category": ExerciseCategory.compound,
-        "difficulty": 1, "contraindications": ["wrist"],
-    },
-    {
-        "slug": "cable-fly", "name": "Cable Chest Fly",
-        "description": "Stretch-focused isolation for pecs.",
-        "primary_muscle": MuscleGroup.chest, "secondary_muscles": [],
-        "equipment": Equipment.cable, "category": ExerciseCategory.isolation,
-        "difficulty": 2, "contraindications": ["shoulder"],
-    },
-    {
-        "slug": "pull-up", "name": "Pull-Up",
-        "description": "Vertical pull, lat-dominant.",
-        "primary_muscle": MuscleGroup.back, "secondary_muscles": ["biceps", "core"],
-        "equipment": Equipment.bodyweight, "category": ExerciseCategory.compound,
-        "difficulty": 4, "contraindications": ["elbow", "shoulder"],
-    },
-    {
-        "slug": "lat-pulldown", "name": "Lat Pulldown",
-        "description": "Machine vertical pull.",
-        "primary_muscle": MuscleGroup.back, "secondary_muscles": ["biceps"],
-        "equipment": Equipment.cable, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": [],
-    },
-    {
-        "slug": "barbell-row", "name": "Barbell Row",
-        "description": "Heavy horizontal pull for back thickness.",
-        "primary_muscle": MuscleGroup.back, "secondary_muscles": ["biceps", "forearms"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 4, "contraindications": ["spine_load", "back"],
-    },
-    {
-        "slug": "dumbbell-row", "name": "Single-Arm Dumbbell Row",
-        "description": "Unilateral back row.",
-        "primary_muscle": MuscleGroup.back, "secondary_muscles": ["biceps"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": [],
-    },
-    {
-        "slug": "face-pull", "name": "Face Pull",
-        "description": "Rear-delt and upper back accessory.",
-        "primary_muscle": MuscleGroup.shoulders, "secondary_muscles": ["back"],
-        "equipment": Equipment.cable, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": [],
-    },
-    {
-        "slug": "overhead-press", "name": "Standing Overhead Press",
-        "description": "Vertical press for shoulders.",
-        "primary_muscle": MuscleGroup.shoulders, "secondary_muscles": ["triceps", "core"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 4, "contraindications": ["overhead_press", "shoulder"],
-    },
-    {
-        "slug": "dumbbell-shoulder-press", "name": "Seated Dumbbell Shoulder Press",
-        "description": "Shoulder press with neutral grip option.",
-        "primary_muscle": MuscleGroup.shoulders, "secondary_muscles": ["triceps"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.compound,
-        "difficulty": 2, "contraindications": ["shoulder"],
-    },
-    {
-        "slug": "lateral-raise", "name": "Lateral Raise",
-        "description": "Side-delt isolation.",
-        "primary_muscle": MuscleGroup.shoulders, "secondary_muscles": [],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": [],
-    },
-    {
-        "slug": "barbell-curl", "name": "Barbell Curl",
-        "description": "Classic biceps builder.",
-        "primary_muscle": MuscleGroup.biceps, "secondary_muscles": ["forearms"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.isolation,
-        "difficulty": 2, "contraindications": ["wrist", "elbow"],
-    },
-    {
-        "slug": "hammer-curl", "name": "Hammer Curl",
-        "description": "Brachialis-focused curl.",
-        "primary_muscle": MuscleGroup.biceps, "secondary_muscles": ["forearms"],
-        "equipment": Equipment.dumbbell, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": ["elbow"],
-    },
-    {
-        "slug": "triceps-pushdown", "name": "Triceps Pushdown",
-        "description": "Cable triceps isolation.",
-        "primary_muscle": MuscleGroup.triceps, "secondary_muscles": [],
-        "equipment": Equipment.cable, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": ["elbow"],
-    },
-    {
-        "slug": "close-grip-bench", "name": "Close-Grip Bench Press",
-        "description": "Compound triceps focus.",
-        "primary_muscle": MuscleGroup.triceps, "secondary_muscles": ["chest", "shoulders"],
-        "equipment": Equipment.barbell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": ["wrist", "heavy_press"],
-    },
-    {
-        "slug": "plank", "name": "Plank",
-        "description": "Isometric core hold.",
-        "primary_muscle": MuscleGroup.core, "secondary_muscles": ["shoulders"],
-        "equipment": Equipment.bodyweight, "category": ExerciseCategory.isolation,
-        "difficulty": 1, "contraindications": [],
-    },
-    {
-        "slug": "hanging-leg-raise", "name": "Hanging Leg Raise",
-        "description": "Lower abs dominant.",
-        "primary_muscle": MuscleGroup.core, "secondary_muscles": [],
-        "equipment": Equipment.bodyweight, "category": ExerciseCategory.isolation,
-        "difficulty": 3, "contraindications": ["back"],
-    },
-    {
-        "slug": "cable-crunch", "name": "Cable Crunch",
-        "description": "Loaded spinal flexion.",
-        "primary_muscle": MuscleGroup.core, "secondary_muscles": [],
-        "equipment": Equipment.cable, "category": ExerciseCategory.isolation,
-        "difficulty": 2, "contraindications": ["spine_load"],
-    },
-    {
-        "slug": "kettlebell-swing", "name": "Kettlebell Swing",
-        "description": "Explosive posterior-chain and cardio hybrid.",
-        "primary_muscle": MuscleGroup.glutes, "secondary_muscles": ["back", "cardio"],
-        "equipment": Equipment.kettlebell, "category": ExerciseCategory.compound,
-        "difficulty": 3, "contraindications": ["spine_load", "back"],
-    },
-    {
-        "slug": "rowing-machine", "name": "Rowing Machine",
-        "description": "Full-body cardio.",
-        "primary_muscle": MuscleGroup.cardio, "secondary_muscles": ["back", "legs"],
-        "equipment": Equipment.machine, "category": ExerciseCategory.cardio,
-        "difficulty": 1, "contraindications": [],
-    },
-    {
-        "slug": "treadmill-run", "name": "Treadmill Run",
-        "description": "Cardio — steady state or intervals.",
-        "primary_muscle": MuscleGroup.cardio, "secondary_muscles": ["legs"],
-        "equipment": Equipment.machine, "category": ExerciseCategory.cardio,
-        "difficulty": 1, "contraindications": ["knee"],
-    },
+    ex("bench-press", "Жим лежа", "Barbell Bench Press", MuscleGroup.chest, Equipment.barbell, ExerciseCategory.compound, 3, "Базовое силовое упражнение для груди.", ["triceps", "shoulders"]),
+    ex("barbell-back-squat", "Приседания со штангой", "Barbell Back Squat", MuscleGroup.legs, Equipment.barbell, ExerciseCategory.compound, 4, "Базовое упражнение для ног и ягодиц.", ["glutes", "core"]),
+    ex("deadlift", "Становая тяга", "Deadlift", MuscleGroup.back, Equipment.barbell, ExerciseCategory.compound, 5, "Силовое упражнение для всей задней цепи.", ["legs", "glutes"]),
+    ex("pull-up", "Подтягивания", "Pull-Up", MuscleGroup.back, Equipment.bodyweight, ExerciseCategory.compound, 4, "Вертикальная тяга собственным весом.", ["biceps"]),
+    ex("seated-db-press", "Жим гантелей сидя", "Seated Dumbbell Press", MuscleGroup.shoulders, Equipment.dumbbell, ExerciseCategory.compound, 2, "Жим для дельт в стабильном положении."),
+    ex("barbell-row", "Тяга штанги в наклоне", "Barbell Row", MuscleGroup.back, Equipment.barbell, ExerciseCategory.compound, 4, "Горизонтальная тяга для толщины спины.", ["biceps"]),
+    ex("db-fly", "Разведения гантелей лежа", "Dumbbell Fly", MuscleGroup.chest, Equipment.dumbbell, ExerciseCategory.isolation, 2, "Изолированная работа на грудные мышцы."),
+    ex("biceps-curl", "Сгибания на бицепс", "Biceps Curl", MuscleGroup.biceps, Equipment.dumbbell, ExerciseCategory.isolation, 1, "Классическое упражнение на бицепс."),
+    ex("incline-bench", "Жим штанги на наклонной", "Incline Bench Press", MuscleGroup.chest, Equipment.barbell, ExerciseCategory.compound, 3, "Акцент на верх груди."),
+    ex("lat-pulldown", "Тяга верхнего блока", "Lat Pulldown", MuscleGroup.back, Equipment.cable, ExerciseCategory.compound, 2, "Вертикальная тяга в тренажере.", ["biceps"]),
+    ex("leg-press", "Жим ногами", "Leg Press", MuscleGroup.legs, Equipment.machine, ExerciseCategory.compound, 2, "Силовая работа ног в тренажере."),
+    ex("romanian-deadlift", "Румынская тяга", "Romanian Deadlift", MuscleGroup.glutes, Equipment.barbell, ExerciseCategory.compound, 3, "Задняя поверхность бедра и ягодицы.", ["back"]),
+    ex("bulgarian-split-squat", "Болгарские выпады", "Bulgarian Split Squat", MuscleGroup.legs, Equipment.dumbbell, ExerciseCategory.compound, 3, "Одноногая работа на силу и баланс."),
+    ex("hip-thrust", "Ягодичный мост со штангой", "Barbell Hip Thrust", MuscleGroup.glutes, Equipment.barbell, ExerciseCategory.compound, 3, "Акцентированная работа ягодиц."),
+    ex("walking-lunges", "Выпады с гантелями", "Walking Lunges", MuscleGroup.legs, Equipment.dumbbell, ExerciseCategory.compound, 3, "Функциональная работа ног."),
+    ex("leg-extension", "Разгибания ног", "Leg Extension", MuscleGroup.legs, Equipment.machine, ExerciseCategory.isolation, 1, "Изоляция квадрицепса."),
+    ex("leg-curl", "Сгибания ног лежа", "Leg Curl", MuscleGroup.legs, Equipment.machine, ExerciseCategory.isolation, 1, "Изоляция бицепса бедра."),
+    ex("calf-raise", "Подъемы на икры", "Calf Raise", MuscleGroup.calves, Equipment.machine, ExerciseCategory.isolation, 1, "Изоляция икроножных."),
+    ex("overhead-press", "Жим штанги стоя", "Overhead Press", MuscleGroup.shoulders, Equipment.barbell, ExerciseCategory.compound, 4, "Базовый вертикальный жим."),
+    ex("lateral-raise", "Подъемы гантелей в стороны", "Lateral Raise", MuscleGroup.shoulders, Equipment.dumbbell, ExerciseCategory.isolation, 1, "Средние дельты."),
+    ex("face-pull", "Тяга каната к лицу", "Face Pull", MuscleGroup.shoulders, Equipment.cable, ExerciseCategory.isolation, 1, "Задние дельты и ротаторы."),
+    ex("triceps-pushdown", "Разгибание рук на блоке", "Triceps Pushdown", MuscleGroup.triceps, Equipment.cable, ExerciseCategory.isolation, 1, "Изоляция трицепса."),
+    ex("close-grip-bench", "Жим лежа узким хватом", "Close-Grip Bench Press", MuscleGroup.triceps, Equipment.barbell, ExerciseCategory.compound, 3, "Силовой акцент на трицепс."),
+    ex("hammer-curl", "Молотковые сгибания", "Hammer Curl", MuscleGroup.biceps, Equipment.dumbbell, ExerciseCategory.isolation, 1, "Брахиалис и предплечья."),
+    ex("preacher-curl", "Сгибания на скамье Скотта", "Preacher Curl", MuscleGroup.biceps, Equipment.machine, ExerciseCategory.isolation, 2, "Контролируемая работа на бицепс."),
+    ex("dips", "Отжимания на брусьях", "Dips", MuscleGroup.triceps, Equipment.bodyweight, ExerciseCategory.compound, 3, "Грудь и трицепс."),
+    ex("push-up", "Отжимания от пола", "Push-Up", MuscleGroup.chest, Equipment.bodyweight, ExerciseCategory.compound, 1, "Базовое упражнение с собственным весом."),
+    ex("plank", "Планка", "Plank", MuscleGroup.core, Equipment.bodyweight, ExerciseCategory.isolation, 1, "Статическое упражнение на корпус."),
+    ex("hanging-leg-raise", "Подъем ног в висе", "Hanging Leg Raise", MuscleGroup.core, Equipment.bodyweight, ExerciseCategory.isolation, 3, "Нижний пресс."),
+    ex("cable-crunch", "Скручивания на блоке", "Cable Crunch", MuscleGroup.core, Equipment.cable, ExerciseCategory.isolation, 2, "Силовая работа пресса."),
+    ex("rowing-machine", "Гребной тренажер", "Rowing Machine", MuscleGroup.cardio, Equipment.machine, ExerciseCategory.cardio, 1, "Кардио на все тело."),
+    ex("treadmill-run", "Бег на дорожке", "Treadmill Run", MuscleGroup.cardio, Equipment.machine, ExerciseCategory.cardio, 1, "Кардионагрузка в устойчивом темпе."),
 ]
 
 
 async def run() -> None:
     async with SessionLocal() as db:
-        existing = {row for row in (await db.execute(select(Exercise.slug))).scalars().all()}
+        existing = {
+            row.slug: row
+            for row in (
+                await db.execute(select(Exercise))
+            ).scalars().all()
+        }
+        target_slugs = {item["slug"] for item in SEED}
         created = 0
+        updated = 0
         for data in SEED:
-            if data["slug"] in existing:
+            row = existing.get(data["slug"])
+            if row is not None:
+                for key, value in data.items():
+                    setattr(row, key, value)
+                row.is_active = True
+                updated += 1
                 continue
             db.add(Exercise(**data))
             created += 1
+        for slug, row in existing.items():
+            if slug not in target_slugs:
+                row.is_active = False
         await db.commit()
-        print(f"[seed] exercises created: {created}; total seeded: {len(SEED)}")
+        print(f"[seed] exercises created: {created}; updated: {updated}; total seeded: {len(SEED)}")
 
 
 if __name__ == "__main__":

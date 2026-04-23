@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+RUN pip install --retries 10 --timeout 120 --prefix=/install -r requirements.txt
 
 FROM base AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \

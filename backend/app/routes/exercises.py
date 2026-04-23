@@ -16,12 +16,22 @@ async def list_exercises(
     db: DbSession,
     muscle: MuscleGroup | None = Query(default=None),
     equipment: list[Equipment] | None = Query(default=None),
+    q: str | None = Query(default=None, min_length=1, max_length=120),
 ) -> list[ExerciseRead]:
-    exercises = await ExerciseRepository(db).list_filtered(muscle=muscle, equipment=equipment)
+    exercises = await ExerciseRepository(db).list_filtered(muscle=muscle, equipment=equipment, query=q)
     return [ExerciseRead.model_validate(e) for e in exercises]
 
 
-@router.get("/{slug}", response_model=ExerciseRead)
+@router.get("/{exercise_id:int}", response_model=ExerciseRead)
+async def get_exercise_by_id(exercise_id: int, db: DbSession) -> ExerciseRead:
+    ex = await ExerciseRepository(db).get(exercise_id)
+    if not ex:
+        raise NotFound("Exercise not found")
+    return ExerciseRead.model_validate(ex)
+
+
+@router.get("/slug/{slug}", response_model=ExerciseRead)
+@router.get("/{slug}", response_model=ExerciseRead, include_in_schema=False)
 async def get_exercise(slug: str, db: DbSession) -> ExerciseRead:
     ex = await ExerciseRepository(db).get_by_slug(slug)
     if not ex:

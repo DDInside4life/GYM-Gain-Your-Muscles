@@ -1,4 +1,4 @@
-# GYM — Build & Run Guide
+`# GYM — Build & Run Guide
 
 Complete, step-by-step instructions to build and run the **GYM** fullstack app
 (Next.js 15 + FastAPI + PostgreSQL 16). Three supported paths:
@@ -333,6 +333,49 @@ curl -sf $BASE/api/auth/me -H "authorization: Bearer $TOK"
 ```
 
 If every line prints valid JSON without a non-2xx status, the stack is healthy.
+
+---
+
+## 7.5 AI Agents layer (optional)
+
+The AI layer adds a multi-agent coach on top of the deterministic engine. It is
+**off by default** — the stack works as before without it.
+
+### Enable
+
+Set these env vars (any OpenAI-compatible provider — Groq is free):
+
+```dotenv
+AI_ENABLED=1
+AI_PROVIDER=groq
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_API_KEY=gsk_...
+AI_MODEL=llama-3.1-70b-versatile
+```
+
+Then run the new migration:
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
+### What it adds
+
+- `POST /api/ai/workouts/generate` — LLM-chosen exercises, safety-filtered, explainable.
+- `POST /api/ai/workouts/progress` — LLM adjusts next week based on feedback.
+- `POST /api/ai/nutrition/generate` — deterministic macros + LLM meal structure.
+- `GET  /api/ai/plans/{id}/explanation` — structured "why this plan?" block.
+- `GET  /api/ai/status` — probe whether AI is ready.
+
+Every AI call is logged in `ai_events` (prompt, response, latency, source).
+
+### Fallback behavior
+
+If the LLM is disabled, times out, returns malformed JSON, or fails validation,
+the coordinator transparently falls back to the existing deterministic
+`WorkoutGenerator` / `ProgressionService` / `NutritionService` and marks
+`source="fallback"` on the response. Frontend shows a "Rules" badge instead
+of "AI". No request ever fails because of an LLM issue.
 
 ---
 
