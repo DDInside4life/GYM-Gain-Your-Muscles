@@ -146,38 +146,44 @@ export default function NutritionPage() {
 
       {plan && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: "Калории", v: plan.calories, c: "brand" as const },
-              { label: "Белки, г", v: plan.protein_g, c: "violet" as const },
-              { label: "Жиры, г", v: plan.fat_g, c: "brand" as const },
-              { label: "Углеводы, г", v: plan.carbs_g, c: "violet" as const },
-            ].map((it) => (
-              <div key={it.label} className="glass-card p-4">
-                <div className="text-xs text-muted">{it.label}</div>
-                <div className={`display text-2xl font-extrabold ${it.c === "brand" ? "text-brand-500" : "text-violet-500"}`}>
-                  {it.v}
-                </div>
-              </div>
-            ))}
-          </div>
+          <Card>
+            <CardHeader><CardTitle>Сегодня</CardTitle></CardHeader>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 justify-items-center py-2">
+              {[
+                { label: "Калории", value: plan.calories, max: 3000, color: "#ff4533", unit: "ккал" },
+                { label: "Белки", value: plan.protein_g, max: 250, color: "#8b5cf6", unit: "г" },
+                { label: "Жиры", value: plan.fat_g, max: 150, color: "#ff5f4c", unit: "г" },
+                { label: "Углеводы", value: plan.carbs_g, max: 400, color: "#a78bfa", unit: "г" },
+              ].map((it) => (
+                <MacroRing key={it.label} {...it} />
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 justify-center text-xs text-muted">
+              <span>БМР: {plan.bmr} ккал</span>
+              <span>ТДЕЕ: {plan.tdee} ккал</span>
+              <span>{plan.goal_label}</span>
+            </div>
+          </Card>
 
           <Card>
-            <CardHeader><CardTitle>План приёмов пищи</CardTitle></CardHeader>
-            <div className="grid md:grid-cols-2 gap-3">
+            <CardHeader><CardTitle>Приёмы пищи</CardTitle></CardHeader>
+            <div className="space-y-3">
               {plan.meals.map((m) => (
                 <div key={m.id} className="glass-card p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="display font-bold">{m.title}</div>
-                    <div className="text-xs text-muted">{m.calories} ккал</div>
+                    <div className="text-xs text-muted font-semibold">{m.calories} ккал</div>
                   </div>
-                  <div className="text-[11px] text-muted mt-1">
-                    Б {m.protein_g} · Ж {m.fat_g} · У {m.carbs_g}
+                  <div className="flex gap-4 text-[11px] text-muted mb-3">
+                    <span>Б <span className="font-semibold text-violet-400">{m.protein_g}</span> г</span>
+                    <span>Ж <span className="font-semibold text-brand-400">{m.fat_g}</span> г</span>
+                    <span>У <span className="font-semibold text-violet-300">{m.carbs_g}</span> г</span>
                   </div>
-                  <ul className="mt-3 text-sm space-y-1">
+                  <ul className="text-sm space-y-1">
                     {m.items.map((i) => (
-                      <li key={i.name} className="flex justify-between border-b border-[var(--border)] py-1">
-                        <span>{i.name}</span><span className="text-muted">{i.amount_g} г</span>
+                      <li key={i.name} className="flex justify-between border-b border-[var(--border)] py-1.5">
+                        <span>{i.name}</span>
+                        <span className="text-muted">{i.amount_g} г</span>
                       </li>
                     ))}
                   </ul>
@@ -187,6 +193,51 @@ export default function NutritionPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+function MacroRing({
+  value,
+  max,
+  label,
+  color,
+  unit,
+}: {
+  value: number;
+  max: number;
+  label: string;
+  color: string;
+  unit: string;
+}) {
+  const r = 38;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.min(value / max, 1));
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="relative">
+        <svg width="96" height="96" viewBox="0 0 96 96">
+          <circle cx="48" cy="48" r={r} fill="none" stroke="rgba(128,128,128,0.12)" strokeWidth="7" />
+          <circle
+            cx="48" cy="48" r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth="7"
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform="rotate(-90 48 48)"
+          />
+          <text x="48" y="44" textAnchor="middle" fontSize="15" fontWeight="bold" fill="currentColor">
+            {value}
+          </text>
+          <text x="48" y="60" textAnchor="middle" fontSize="10" fill="var(--muted)">
+            {unit}
+          </text>
+        </svg>
+      </div>
+      <span className="text-xs text-muted font-medium">{label}</span>
     </div>
   );
 }
