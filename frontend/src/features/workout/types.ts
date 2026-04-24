@@ -107,3 +107,39 @@ export type FeedbackInput = {
   discomfort: string[];
   note: string;
 };
+
+export type WorkoutTemplateExercise = {
+  id: number;
+  position: number;
+  sets: number;
+  reps_min: number;
+  reps_max: number;
+  rest_sec: number;
+  target_percent_1rm: number | null;
+  notes: string;
+  exercise_id: number;
+  exercise_name: string;
+  exercise_slug: string;
+  muscle: string;
+};
+
+export type WorkoutTemplateDay = {
+  id: number;
+  day_index: number;
+  title: string;
+  focus: string;
+  is_rest: boolean;
+  exercises: WorkoutTemplateExercise[];
+};
+
+export type WorkoutTemplate = {
+  id: number;
+  slug: string;
+  name: string;
+  level: string;
+  split_type: string;
+  days_per_week: number;
+  description: string;
+  is_active: boolean;
+  days: WorkoutTemplateDay[];
+};

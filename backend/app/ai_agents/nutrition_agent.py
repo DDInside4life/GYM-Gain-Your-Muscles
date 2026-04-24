@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai_agents.llm import LLMClient, LLMError, LLMResult
 from app.ai_agents.prompts import NUTRITION_SYSTEM, build_nutrition_prompt
 from app.ai_agents.schemas import AINutritionDraft, AIUserContext
-from app.models.nutrition import Meal, NutritionPlan
+from app.models.nutrition import NutritionPlan, PlanMeal
 from app.models.user import User
 from app.schemas.nutrition import NutritionInput
 from app.services.nutrition import NutritionService, MEAL_TEMPLATES
@@ -87,7 +87,7 @@ class NutritionAgent:
             meals_to_write = [(t, r, items) for t, r, items in MEAL_TEMPLATES]
 
         for idx, (title, ratio, items) in enumerate(meals_to_write):
-            self.db.add(Meal(
+            self.db.add(PlanMeal(
                 plan_id=plan.id, position=idx, title=title,
                 calories=int(calories * ratio),
                 protein_g=round(protein_g * ratio, 1),

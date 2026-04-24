@@ -6,6 +6,7 @@ import asyncio
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
+from app.data.seed_templates import ensure_seed_templates
 from app.models.exercise import Equipment, Exercise, ExerciseCategory, MuscleGroup
 
 
@@ -96,7 +97,9 @@ async def run() -> None:
             if slug not in target_slugs:
                 row.is_active = False
         await db.commit()
+        templates_created, templates_updated = await ensure_seed_templates(db)
         print(f"[seed] exercises created: {created}; updated: {updated}; total seeded: {len(SEED)}")
+        print(f"[seed] templates created: {templates_created}; updated: {templates_updated}")
 
 
 if __name__ == "__main__":

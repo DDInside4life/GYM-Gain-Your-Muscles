@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.nutrition import Meal, NutritionPlan
+from app.models.nutrition import NutritionPlan, PlanMeal
 from app.models.user import Goal, Sex, User
-from app.schemas.nutrition import NutritionInput
+from app.schemas.nutrition import NutritionCalculatorActivity, NutritionCalculatorGoal, NutritionInput, NutritionTargetsInput
 
 
 MEAL_TEMPLATES = [
@@ -38,6 +40,81 @@ class NutritionService:
     def mifflin_st_jeor(weight_kg: float, height_cm: float, age: int, sex: Sex) -> int:
         base = 10 * weight_kg + 6.25 * height_cm - 5 * age
         return int(round(base + (5 if sex == Sex.male else -161)))
+
+    @staticmethod
+    def _round(value: float) -> float:
+        return round(value, 2)
+
+    @staticmethod
+    def activity_factor(activity: NutritionCalculatorActivity) -> float:
+        return {
+            NutritionCalculatorActivity.sedentary: 1.2,
+            NutritionCalculatorActivity.light: 1.375,
+            NutritionCalculatorActivity.moderate: 1.55,
+            NutritionCalculatorActivity.active: 1.725,
+            NutritionCalculatorActivity.very_active: 1.9,
+        }[activity]
+
+    @staticmethod
+    def goal_multiplier(goal: NutritionCalculatorGoal) -> float:
+        return {
+            NutritionCalculatorGoal.cut: 0.82,
+            NutritionCalculatorGoal.maintain: 1.0,
+            NutritionCalculatorGoal.bulk: 1.12,
+        }[goal]
+
+    @staticmethod
+    def protein_per_kg(goal: NutritionCalculatorGoal) -> float:
+        return {
+            NutritionCalculatorGoal.cut: 2.2,
+            NutritionCalculatorGoal.maintain: 1.8,
+            NutritionCalculatorGoal.bulk: 2.0,
+        }[goal]
+
+    @staticmethod
+    def fat_per_kg(goal: NutritionCalculatorGoal) -> float:
+        return {
+            NutritionCalculatorGoal.cut: 0.8,
+            NutritionCalculatorGoal.maintain: 0.9,
+            NutritionCalculatorGoal.bulk: 1.0,
+        }[goal]
+
+    @dataclass(slots=True)
+    class MacroTarget:
+        grams: float
+        kcal: float
+
+    @dataclass(slots=True)
+    class NutritionTargets:
+        bmr: float
+        tdee: float
+        target_calories: float
+        goal: NutritionCalculatorGoal
+        protein: "NutritionService.MacroTarget"
+        fat: "NutritionService.MacroTarget"
+        carbs: "NutritionService.MacroTarget"
+
+    def calculate_targets(self, payload: NutritionTargetsInput) -> "NutritionTargets":
+        bmr = float(self.mifflin_st_jeor(payload.weight_kg, payload.height_cm, payload.age, payload.sex))
+        tdee = self._round(bmr * self.activity_factor(payload.activity))
+        target_calories = self._round(tdee * self.goal_multiplier(payload.goal))
+
+        protein_g = self._round(payload.weight_kg * self.protein_per_kg(payload.goal))
+        fat_g = self._round(payload.weight_kg * self.fat_per_kg(payload.goal))
+        protein_kcal = self._round(protein_g * 4.0)
+        fat_kcal = self._round(fat_g * 9.0)
+        carbs_kcal = self._round(max(0.0, target_calories - protein_kcal - fat_kcal))
+        carbs_g = self._round(carbs_kcal / 4.0)
+
+        return NutritionService.NutritionTargets(
+            bmr=bmr,
+            tdee=tdee,
+            target_calories=target_calories,
+            goal=payload.goal,
+            protein=NutritionService.MacroTarget(grams=protein_g, kcal=protein_kcal),
+            fat=NutritionService.MacroTarget(grams=fat_g, kcal=fat_kcal),
+            carbs=NutritionService.MacroTarget(grams=carbs_g, kcal=carbs_kcal),
+        )
 
     @staticmethod
     def macro_split(calories: int, goal: Goal, weight_kg: float) -> tuple[int, int, int]:
@@ -82,7 +159,7 @@ class NutritionService:
         await self.db.flush()
 
         for idx, (title, ratio, items) in enumerate(MEAL_TEMPLATES):
-            self.db.add(Meal(
+            self.db.add(PlanMeal(
                 plan_id=plan.id,
                 position=idx,
                 title=title,

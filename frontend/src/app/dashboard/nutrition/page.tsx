@@ -1,76 +1,190 @@
 "use client";
 
-import { useState } from "react";
-import { Brain, Flame, Salad } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Salad } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label, Select } from "@/components/ui/input";
-import { AIExplanationBlock } from "@/components/dashboard/ai-explanation";
-import { aiApi } from "@/features/ai/api";
-import { useAiStatus } from "@/features/ai/use-ai-workout";
-import type { AIExplanation } from "@/features/ai/types";
-import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth-store";
+import { Input, Label } from "@/components/ui/input";
+import { nutritionApi } from "@/features/nutrition/api";
+import { CalorieCalculatorCard } from "@/features/nutrition/calorie-calculator";
+import { MealCard } from "@/features/nutrition/meal-card";
+import type { CalculatorFormState } from "@/features/nutrition/calorie-calculator";
+import type { FoodDraft, Meal, NutritionDailySummary, NutritionTargets } from "@/features/nutrition/types";
+import { parseNonNegativeNumber, parsePositiveNumber } from "@/features/nutrition/utils";
 
-type NutritionPlan = {
-  id: number;
-  calories: number;
-  protein_g: number;
-  fat_g: number;
-  carbs_g: number;
-  bmr: number;
-  tdee: number;
-  goal_label: string;
-  meals: {
-    id: number; title: string; calories: number;
-    protein_g: number; fat_g: number; carbs_g: number;
-    items: { name: string; amount_g: number }[];
-  }[];
+const emptyFoodDraft: FoodDraft = {
+  name: "",
+  protein_per_100g: "",
+  fat_per_100g: "",
+  carbs_per_100g: "",
+  grams: "",
 };
 
 export default function NutritionPage() {
-  const user = useAuth((s) => s.user)!;
-  const [form, setForm] = useState({
-    weight_kg: user.weight_kg ?? 75,
-    height_cm: user.height_cm ?? 175,
-    age: 28,
-    sex: user.sex ?? "male",
-    activity_factor: user.activity_factor ?? 1.55,
-    goal: user.goal ?? "muscle_gain",
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [summary, setSummary] = useState<NutritionDailySummary | null>(null);
+  const [meals, setMeals] = useState<Meal[]>([]);
+  const [mealName, setMealName] = useState("");
+  const [foodDrafts, setFoodDrafts] = useState<Record<number, FoodDraft>>({});
+  const [mealFormErrors, setMealFormErrors] = useState<Record<number, string | null>>({});
+  const [expandedMeals, setExpandedMeals] = useState<Record<number, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [creatingMeal, setCreatingMeal] = useState(false);
+  const [addingFoodMealId, setAddingFoodMealId] = useState<number | null>(null);
+  const [deletingFoodId, setDeletingFoodId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [targets, setTargets] = useState<NutritionTargets | null>(null);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [targetsError, setTargetsError] = useState<string | null>(null);
+  const [calculatorForm, setCalculatorForm] = useState<CalculatorFormState>({
+    sex: "male",
+    age: "28",
+    weight_kg: "75",
+    height_cm: "175",
+    activity: "moderate",
+    goal: "maintain",
   });
-  const [plan, setPlan] = useState<NutritionPlan | null>(null);
-  const [explanation, setExplanation] = useState<AIExplanation | null>(null);
-  const [loading, setLoading] = useState(false);
-  const aiStatus = useAiStatus();
-  const aiAvailable = !!aiStatus?.enabled;
-  const [aiMode, setAiMode] = useState<boolean>(false);
 
-  async function generate() {
+  function setMealDraft(mealId: number, updater: (current: FoodDraft) => FoodDraft) {
+    setFoodDrafts((prev) => {
+      const current = prev[mealId] ?? emptyFoodDraft;
+      return { ...prev, [mealId]: updater(current) };
+    });
+  }
+
+  async function loadData(date: string) {
     setLoading(true);
-    const payload = {
-      ...form,
-      weight_kg: Number(form.weight_kg),
-      height_cm: Number(form.height_cm),
-      age: Number(form.age),
-      activity_factor: Number(form.activity_factor),
-    };
+    setError(null);
     try {
-      if (aiMode && aiAvailable) {
-        const res = await aiApi.generateNutrition(payload as never);
-        setPlan(res.plan as unknown as NutritionPlan);
-        setExplanation(res.explanation);
-      } else {
-        const p = await api<NutritionPlan>("/nutrition/generate", {
-          method: "POST",
-          body: JSON.stringify(payload),
-          auth: true,
-        });
-        setPlan(p);
-        setExplanation(null);
-      }
+      const [loadedMeals, loadedSummary] = await Promise.all([
+        nutritionApi.getMealsByDate(date),
+        nutritionApi.getDailySummary(date),
+      ]);
+      setMeals(loadedMeals);
+      setSummary(loadedSummary);
+      setExpandedMeals((prev) =>
+        loadedMeals.reduce<Record<number, boolean>>((acc, meal) => {
+          acc[meal.id] = prev[meal.id] ?? true;
+          return acc;
+        }, {}),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить данные питания.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadData(selectedDate);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    const age = parsePositiveNumber(calculatorForm.age);
+    const weight = parsePositiveNumber(calculatorForm.weight_kg);
+    const height = parsePositiveNumber(calculatorForm.height_cm);
+    if (!age || !weight || !height) {
+      setTargets(null);
+      setTargetsError("Введите корректные данные для расчета.");
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      setTargetsLoading(true);
+      setTargetsError(null);
+      try {
+        const result = await nutritionApi.calculateTargets({
+          sex: calculatorForm.sex,
+          age,
+          weight_kg: weight,
+          height_cm: height,
+          activity: calculatorForm.activity,
+          goal: calculatorForm.goal,
+        });
+        setTargets(result);
+      } catch (e) {
+        setTargetsError(e instanceof Error ? e.message : "Не удалось рассчитать цели.");
+      } finally {
+        setTargetsLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [calculatorForm]);
+
+  async function refreshSummary() {
+    const freshSummary = await nutritionApi.getDailySummary(selectedDate);
+    setSummary(freshSummary);
+  }
+
+  async function createMeal() {
+    if (!mealName.trim()) return;
+    setCreatingMeal(true);
+    setError(null);
+    try {
+      const created = await nutritionApi.createMeal({
+        date: selectedDate,
+        name: mealName.trim(),
+      });
+      setMeals((prev) => [...prev, created]);
+      setMealName("");
+      setExpandedMeals((prev) => ({ ...prev, [created.id]: true }));
+      await refreshSummary();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось создать прием пищи.");
+    } finally {
+      setCreatingMeal(false);
+    }
+  }
+
+  async function addFood(mealId: number) {
+    const draft = foodDrafts[mealId] ?? emptyFoodDraft;
+    const protein = parseNonNegativeNumber(draft.protein_per_100g);
+    const fat = parseNonNegativeNumber(draft.fat_per_100g);
+    const carbs = parseNonNegativeNumber(draft.carbs_per_100g);
+    const grams = parsePositiveNumber(draft.grams);
+
+    if (!draft.name.trim()) {
+      setMealFormErrors((prev) => ({ ...prev, [mealId]: "Введите название блюда." }));
+      return;
+    }
+    if (protein === null || fat === null || carbs === null || grams === null) {
+      setMealFormErrors((prev) => ({ ...prev, [mealId]: "Укажите корректные неотрицательные значения. Граммы должны быть больше 0." }));
+      return;
+    }
+
+    setAddingFoodMealId(mealId);
+    setError(null);
+    setMealFormErrors((prev) => ({ ...prev, [mealId]: null }));
+    try {
+      await nutritionApi.createFoodEntry({
+        meal_id: mealId,
+        name: draft.name.trim(),
+        protein_per_100g: protein,
+        fat_per_100g: fat,
+        carbs_per_100g: carbs,
+        grams,
+      });
+      setFoodDrafts((prev) => ({ ...prev, [mealId]: emptyFoodDraft }));
+      await loadData(selectedDate);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось добавить блюдо.");
+    } finally {
+      setAddingFoodMealId(null);
+    }
+  }
+
+  async function deleteFood(entryId: number) {
+    setDeletingFoodId(entryId);
+    setError(null);
+    try {
+      await nutritionApi.deleteFoodEntry(entryId);
+      await loadData(selectedDate);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить блюдо.");
+    } finally {
+      setDeletingFoodId(null);
     }
   }
 
@@ -81,118 +195,74 @@ export default function NutritionPage() {
           <CardTitle>Питание</CardTitle>
           <Salad className="text-emerald-500" />
         </CardHeader>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-[220px_1fr_auto] gap-3 items-end">
           <div>
-            <Label>Вес (кг)</Label>
-            <Input type="number" value={form.weight_kg} onChange={(e) => setForm({ ...form, weight_kg: +e.target.value })} />
+            <Label>Дата</Label>
+            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
           </div>
           <div>
-            <Label>Рост (см)</Label>
-            <Input type="number" value={form.height_cm} onChange={(e) => setForm({ ...form, height_cm: +e.target.value })} />
+            <Label>Прием пищи</Label>
+            <Input
+              value={mealName}
+              onChange={(e) => setMealName(e.target.value)}
+              placeholder="Завтрак / Обед / Ужин / Перекус"
+            />
           </div>
-          <div>
-            <Label>Возраст</Label>
-            <Input type="number" value={form.age} onChange={(e) => setForm({ ...form, age: +e.target.value })} />
-          </div>
-          <div>
-            <Label>Пол</Label>
-            <Select value={form.sex as string} onChange={(e) => setForm({ ...form, sex: e.target.value as never })}>
-              <option value="male">Мужской</option>
-              <option value="female">Женский</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Активность</Label>
-            <Select value={String(form.activity_factor)} onChange={(e) => setForm({ ...form, activity_factor: +e.target.value })}>
-              <option value="1.2">Сидячий (1.2)</option>
-              <option value="1.375">Лёгкая (1.375)</option>
-              <option value="1.55">Умеренная (1.55)</option>
-              <option value="1.725">Высокая (1.725)</option>
-              <option value="1.9">Очень высокая (1.9)</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Цель</Label>
-            <Select value={form.goal as string} onChange={(e) => setForm({ ...form, goal: e.target.value as never })}>
-              <option value="muscle_gain">Набор массы</option>
-              <option value="fat_loss">Жиросжигание</option>
-              <option value="strength">Сила</option>
-              <option value="endurance">Выносливость</option>
-              <option value="general">Общее</option>
-            </Select>
-          </div>
+          <Button onClick={createMeal} disabled={creatingMeal || !mealName.trim()} variant="glass">
+            <Plus size={16} /> {creatingMeal ? "Создаем..." : "Добавить прием пищи"}
+          </Button>
         </div>
-        {aiAvailable && (
-          <div className="mt-4 flex items-center gap-3 p-3 rounded-xl border border-[var(--border)]">
-            <Brain size={16} className="text-brand-500" />
-            <div className="flex-1">
-              <div className="text-sm font-semibold">AI-нутрициолог</div>
-              <div className="text-xs text-muted">
-                Калории и макросы рассчитываются детерминированно; LLM персонализирует приёмы пищи.
-              </div>
-            </div>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={aiMode} onChange={(e) => setAiMode(e.target.checked)} />
-              {aiMode ? <Badge tone="brand">AI</Badge> : <Badge>Rules</Badge>}
-            </label>
-          </div>
-        )}
-        <div className="mt-5">
-          <Button onClick={generate} disabled={loading}><Flame size={16} /> {loading ? "…" : "Рассчитать"}</Button>
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      </Card>
+
+      <CalorieCalculatorCard
+        form={calculatorForm}
+        targets={targets}
+        loading={targetsLoading}
+        error={targetsError}
+        onChange={setCalculatorForm}
+      />
+
+      <Card>
+        <CardHeader><CardTitle>Сводка за день</CardTitle></CardHeader>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 justify-items-center py-2">
+          {[
+            { label: "Калории", value: summary?.calories ?? 0, max: targets?.target_calories ?? 4000, color: "#ff4533", unit: "ккал" },
+            { label: "Белки", value: summary?.protein ?? 0, max: targets?.protein.grams ?? 300, color: "#8b5cf6", unit: "г" },
+            { label: "Жиры", value: summary?.fat ?? 0, max: targets?.fat.grams ?? 200, color: "#ff5f4c", unit: "г" },
+            { label: "Углеводы", value: summary?.carbs ?? 0, max: targets?.carbs.grams ?? 500, color: "#a78bfa", unit: "г" },
+          ].map((it) => (
+            <MacroRing key={it.label} {...it} />
+          ))}
         </div>
       </Card>
 
-      {explanation && <AIExplanationBlock explanation={explanation} />}
-
-      {plan && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader><CardTitle>Сегодня</CardTitle></CardHeader>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 justify-items-center py-2">
-              {[
-                { label: "Калории", value: plan.calories, max: 3000, color: "#ff4533", unit: "ккал" },
-                { label: "Белки", value: plan.protein_g, max: 250, color: "#8b5cf6", unit: "г" },
-                { label: "Жиры", value: plan.fat_g, max: 150, color: "#ff5f4c", unit: "г" },
-                { label: "Углеводы", value: plan.carbs_g, max: 400, color: "#a78bfa", unit: "г" },
-              ].map((it) => (
-                <MacroRing key={it.label} {...it} />
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 justify-center text-xs text-muted">
-              <span>БМР: {plan.bmr} ккал</span>
-              <span>ТДЕЕ: {plan.tdee} ккал</span>
-              <span>{plan.goal_label}</span>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>Приёмы пищи</CardTitle></CardHeader>
-            <div className="space-y-3">
-              {plan.meals.map((m) => (
-                <div key={m.id} className="glass-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="display font-bold">{m.title}</div>
-                    <div className="text-xs text-muted font-semibold">{m.calories} ккал</div>
-                  </div>
-                  <div className="flex gap-4 text-[11px] text-muted mb-3">
-                    <span>Б <span className="font-semibold text-violet-400">{m.protein_g}</span> г</span>
-                    <span>Ж <span className="font-semibold text-brand-400">{m.fat_g}</span> г</span>
-                    <span>У <span className="font-semibold text-violet-300">{m.carbs_g}</span> г</span>
-                  </div>
-                  <ul className="text-sm space-y-1">
-                    {m.items.map((i) => (
-                      <li key={i.name} className="flex justify-between border-b border-[var(--border)] py-1.5">
-                        <span>{i.name}</span>
-                        <span className="text-muted">{i.amount_g} г</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
+      <Card>
+        <CardHeader><CardTitle>Приемы пищи</CardTitle></CardHeader>
+        {loading ? (
+          <p className="text-sm text-muted">Загрузка приемов пищи...</p>
+        ) : meals.length === 0 ? (
+          <p className="text-sm text-muted">На эту дату приемов пищи нет.</p>
+        ) : (
+          <div className="space-y-3">
+            {meals.map((meal) => (
+              <MealCard
+                key={meal.id}
+                meal={meal}
+                draft={foodDrafts[meal.id] ?? emptyFoodDraft}
+                isExpanded={expandedMeals[meal.id] ?? true}
+                isSubmitting={addingFoodMealId === meal.id}
+                deletingFoodId={deletingFoodId}
+                formError={mealFormErrors[meal.id] ?? null}
+                onToggle={() => setExpandedMeals((prev) => ({ ...prev, [meal.id]: !(prev[meal.id] ?? true) }))}
+                onChangeDraft={(updater) => setMealDraft(meal.id, updater)}
+                onSubmitFood={() => addFood(meal.id)}
+                onDeleteFood={deleteFood}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -212,7 +282,10 @@ function MacroRing({
 }) {
   const r = 38;
   const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - Math.min(value / max, 1));
+  const safeMax = max > 0 ? max : 1;
+  const progress = Math.min(value / safeMax, 1);
+  const offset = circ * (1 - progress);
+  const percent = Math.round((value / safeMax) * 100);
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -237,7 +310,7 @@ function MacroRing({
           </text>
         </svg>
       </div>
-      <span className="text-xs text-muted font-medium">{label}</span>
+      <span className="text-xs text-muted font-medium">{label} ({percent}%)</span>
     </div>
   );
 }

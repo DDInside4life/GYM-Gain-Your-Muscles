@@ -11,7 +11,8 @@ from app.schemas.workout import (
     WorkoutDayPatch, WorkoutFeedbackInput, WorkoutFeedbackRead, WorkoutGenerateInput, WorkoutPlanRead,
     WorkoutResultInput, WorkoutResultRead,
 )
-from app.services.workout import ProgressionService, WorkoutGenerator
+from app.schemas.template import TemplateGenerateWorkoutInput
+from app.services.workout import ProgressionService, TemplateProgramService, WorkoutGenerator
 
 router = APIRouter()
 
@@ -37,12 +38,30 @@ async def history(user: CurrentUser, db: DbSession) -> list[WorkoutPlanRead]:
 
 
 @router.get("/predefined", response_model=list[dict])
-async def predefined_programs() -> list[dict]:
+async def predefined_programs(db: DbSession) -> list[dict]:
+    templates = await TemplateProgramService(db).list_templates()
     return [
-        {"id": "full_body_hypertrophy", "name": "Full Body Hypertrophy", "days_per_week": 3, "goal": "muscle_gain"},
-        {"id": "upper_lower_strength", "name": "Upper / Lower Strength", "days_per_week": 4, "goal": "strength"},
-        {"id": "push_pull_legs", "name": "Push Pull Legs", "days_per_week": 5, "goal": "muscle_gain"},
+        {
+            "id": item.id,
+            "slug": item.slug,
+            "name": item.name,
+            "days_per_week": item.days_per_week,
+            "level": item.level,
+            "split_type": item.split_type,
+            "description": item.description,
+        }
+        for item in templates
     ]
+
+
+@router.post("/generate-from-template", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)
+async def generate_from_template(
+    payload: TemplateGenerateWorkoutInput,
+    user: CurrentUser,
+    db: DbSession,
+) -> WorkoutPlanRead:
+    plan, _ = await TemplateProgramService(db).generate_from_template(user, payload)
+    return WorkoutPlanRead.model_validate(plan)
 
 
 @router.post("/progress", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)

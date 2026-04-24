@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Label, Select } from "@/components/ui/input";
 import { workoutApi } from "@/features/workout/api";
 import { trainingApi } from "@/features/training/api";
-import type { WorkoutPlan } from "@/features/workout/types";
+import type { WorkoutPlan, WorkoutTemplate } from "@/features/workout/types";
 
 const GOAL_ICON: Record<string, string> = {
   hypertrophy: "💪", strength: "🏋️", recomposition: "⚡",
@@ -21,10 +21,12 @@ export default function WorkoutsPage() {
   const router = useRouter();
   const [plan, setPlan] = useState<WorkoutPlan | null>(null);
   const [history, setHistory] = useState<WorkoutPlan[]>([]);
-  const [predefined, setPredefined] = useState<Array<{ id: string; name: string; days_per_week: number; goal: string }>>([]);
+  const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [progressing, setProgressing] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
+  const [templateActionId, setTemplateActionId] = useState<number | null>(null);
   const [form, setForm] = useState({
     training_experience: "intermediate",
     goal: "hypertrophy",
@@ -37,7 +39,7 @@ export default function WorkoutsPage() {
   useEffect(() => {
     workoutApi.current().then(setPlan).catch(() => setPlan(null));
     workoutApi.history().then(setHistory).catch(() => setHistory([]));
-    workoutApi.predefined().then(setPredefined).catch(() => setPredefined([]));
+    workoutApi.templates().then(setTemplates).catch(() => setTemplates([]));
   }, []);
 
   async function progress() {
@@ -63,6 +65,33 @@ export default function WorkoutsPage() {
       setGenerating(false);
     }
   }
+
+  async function applyTemplate(templateId: number) {
+    setTemplateActionId(templateId);
+    try {
+      const result = await workoutApi.applyTemplate(templateId);
+      setPlan(result.plan);
+      setHistory((prev) => [result.plan, ...prev.filter((p) => p.id !== result.plan.id)]);
+    } finally {
+      setTemplateActionId(null);
+    }
+  }
+
+  async function generateFromTemplate(templateId: number) {
+    setTemplateActionId(templateId);
+    try {
+      const result = await workoutApi.generateFromTemplate(templateId, 28, true);
+      setPlan(result);
+      setHistory((prev) => [result, ...prev.filter((p) => p.id !== result.id)]);
+    } finally {
+      setTemplateActionId(null);
+    }
+  }
+
+  const aiPrograms = history.filter((item) => {
+    const source = String(item.params?.source ?? "");
+    return source.includes("llm") || source.includes("ai") || source.includes("template_ai_adapted");
+  });
 
   return (
     <div className="space-y-6 animate-fade-up">
@@ -151,21 +180,78 @@ export default function WorkoutsPage() {
         </Card>
       )}
 
-      {predefined.length > 0 && (
+      {aiPrograms.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Готовые программы</CardTitle></CardHeader>
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {predefined.map((p) => (
-              <div key={p.id} className="glass-card p-4 group hover:shadow-glow transition-shadow duration-300">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-violet-500/15 grid place-items-center text-lg shrink-0">
-                    {GOAL_ICON[p.goal] ?? "🏋️"}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm leading-tight">{p.name}</div>
-                    <div className="text-xs text-muted mt-1">{p.days_per_week} дней/нед · {p.goal}</div>
+          <CardHeader><CardTitle>AI программы</CardTitle></CardHeader>
+          <div className="space-y-2">
+            {aiPrograms.map((h) => (
+              <div key={h.id} className="glass-card p-3 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-violet-500/15 grid place-items-center text-lg shrink-0">🤖</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{h.name}</div>
+                  <div className="text-xs text-muted">
+                    Месяц {h.month_index} · {h.split_type} · {String(h.params?.source ?? "ai")}
                   </div>
                 </div>
+                <Button size="sm" variant="outline" onClick={async () => setPlan(await workoutApi.select(h.id))}>
+                  Выбрать
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {templates.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Предопределенные программы</CardTitle></CardHeader>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {templates.map((template) => (
+              <div key={template.id} className={`glass-card p-4 group hover:shadow-glow transition-all duration-300 ${plan?.params?.template_id === template.id ? "ring-1 ring-brand-500/70" : ""}`}>
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-violet-500/15 grid place-items-center text-lg shrink-0">
+                    {GOAL_ICON[template.split_type] ?? "🏋️"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-sm leading-tight">{template.name}</div>
+                    <div className="text-xs text-muted mt-1">{template.days_per_week} дней/нед · {template.level}</div>
+                    <div className="text-xs text-muted mt-1 line-clamp-2">{template.description}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setExpandedTemplateId((prev) => (prev === template.id ? null : template.id))}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={templateActionId === template.id}
+                        onClick={() => applyTemplate(template.id)}
+                      >
+                        {templateActionId === template.id ? "..." : "Select"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={templateActionId === template.id}
+                        onClick={() => generateFromTemplate(template.id)}
+                      >
+                        {templateActionId === template.id ? "..." : "Generate based on this"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                {expandedTemplateId === template.id && (
+                  <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+                    {template.days.map((day) => (
+                      <div key={day.id} className="text-xs">
+                        <div className="font-semibold">{day.title}</div>
+                        <div className="text-muted">{day.exercises.map((e) => e.exercise_name).join(", ")}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

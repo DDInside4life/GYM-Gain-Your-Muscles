@@ -27,12 +27,12 @@ class NutritionPlan(Base):
     goal_label: Mapped[str] = mapped_column(String(40), nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="nutrition_plans")
-    meals: Mapped[list["Meal"]] = relationship(
-        back_populates="plan", cascade="all, delete-orphan", order_by="Meal.position",
+    meals: Mapped[list["PlanMeal"]] = relationship(
+        back_populates="plan", cascade="all, delete-orphan", order_by="PlanMeal.position",
     )
 
 
-class Meal(Base):
+class PlanMeal(Base):
     __tablename__ = "meals"
 
     plan_id: Mapped[int] = mapped_column(

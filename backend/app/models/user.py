@@ -12,6 +12,7 @@ from app.models.base import Base
 if TYPE_CHECKING:
     from app.models.workout import WorkoutPlan
     from app.models.nutrition import NutritionPlan
+    from app.models.nutrition_tracking import Meal
     from app.models.progress import WeightEntry
 
 
@@ -56,6 +57,9 @@ class User(Base):
     )
     nutrition_plans: Mapped[list["NutritionPlan"]] = relationship(
         back_populates="user", cascade="all, delete-orphan",
+    )
+    tracked_meals: Mapped[list["Meal"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", order_by="Meal.date",
     )
     weight_entries: Mapped[list["WeightEntry"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", order_by="WeightEntry.recorded_at",
