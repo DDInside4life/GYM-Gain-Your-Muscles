@@ -70,3 +70,11 @@ class Exercise(Base):
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     image_url: Mapped[str | None] = mapped_column(String(400))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    movement_archetype: Mapped[str] = mapped_column(
+        String(40), default="generic", nullable=False, index=True,
+    )
+    is_home: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_gym: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    suitable_for_test: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    suitable_for_progression: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

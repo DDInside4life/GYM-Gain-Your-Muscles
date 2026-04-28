@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models.base import Base
 from app.models import (  # noqa: F401 — register metadata
     user, exercise, workout, workout_template, nutrition, nutrition_tracking, blog, forum, progress, ai_event,
+    questionnaire,
 )
 
 config = context.config

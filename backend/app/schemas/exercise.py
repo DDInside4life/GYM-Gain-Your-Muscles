@@ -20,6 +20,11 @@ class ExerciseBase(BaseModel):
     contraindications: list[str] = []
     image_url: str | None = None
     is_active: bool = True
+    movement_archetype: str = Field(default="generic", max_length=40)
+    is_home: bool = True
+    is_gym: bool = True
+    suitable_for_test: bool = False
+    suitable_for_progression: bool = True
 
 
 class ExerciseCreate(ExerciseBase):

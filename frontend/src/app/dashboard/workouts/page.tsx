@@ -3,18 +3,28 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, CheckCircle2, Dumbbell, Plus, RefreshCcw, Sparkles, X } from "lucide-react";
+import { Calendar, CheckCircle2, Dumbbell, Plus, RefreshCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input, Label, Select } from "@/components/ui/input";
 import { workoutApi } from "@/features/workout/api";
-import { trainingApi } from "@/features/training/api";
+import { questionnaireApi } from "@/features/questionnaire/api";
 import type { WorkoutPlan, WorkoutTemplate } from "@/features/workout/types";
 
+const SPLIT_LABEL: Record<string, string> = {
+  full_body: "Фулл-боди",
+  upper_lower: "Верх/Низ",
+  ppl: "Тяни/Толкай/Ноги",
+};
+
 const GOAL_ICON: Record<string, string> = {
-  hypertrophy: "💪", strength: "🏋️", recomposition: "⚡",
-  muscle_gain: "💪", fat_loss: "🔥", endurance: "🏃", general: "🎯",
+  hypertrophy: "💪",
+  strength: "🏋️",
+  recomposition: "⚡",
+  muscle_gain: "💪",
+  fat_loss: "🔥",
+  endurance: "🏃",
+  general: "🎯",
 };
 
 export default function WorkoutsPage() {
@@ -22,47 +32,29 @@ export default function WorkoutsPage() {
   const [plan, setPlan] = useState<WorkoutPlan | null>(null);
   const [history, setHistory] = useState<WorkoutPlan[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+  const [hasQuestionnaire, setHasQuestionnaire] = useState(false);
   const [progressing, setProgressing] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
   const [templateActionId, setTemplateActionId] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    training_experience: "intermediate",
-    goal: "hypertrophy",
-    training_days: 4,
-    weight_kg: 78,
-    height_cm: 178,
-    bench_1rm: 80,
-  });
 
   useEffect(() => {
     workoutApi.current().then(setPlan).catch(() => setPlan(null));
     workoutApi.history().then(setHistory).catch(() => setHistory([]));
     workoutApi.templates().then(setTemplates).catch(() => setTemplates([]));
+    questionnaireApi
+      .latest()
+      .then((row) => setHasQuestionnaire(Boolean(row)))
+      .catch(() => setHasQuestionnaire(false));
   }, []);
 
-  async function progress() {
+  async function regenerate() {
     setProgressing(true);
-    try { setPlan(await workoutApi.progress()); }
-    finally { setProgressing(false); }
-  }
-
-  async function generateProgram() {
-    setGenerating(true);
     try {
-      await trainingApi.generateProgram({
-        training_experience: form.training_experience as "beginner" | "intermediate" | "advanced",
-        goal: form.goal as "hypertrophy" | "strength" | "recomposition",
-        training_days: form.training_days,
-        weight_kg: form.weight_kg,
-        height_cm: form.height_cm,
-        initial_strength: [{ exercise_id: 1, one_rm: form.bench_1rm }],
-      });
-      setModalOpen(false);
-      router.push("/dashboard/workouts/plan");
+      const next = hasQuestionnaire ? await questionnaireApi.regenerate() : await workoutApi.progress();
+      setPlan(next);
+      setHistory((prev) => [next, ...prev.filter((p) => p.id !== next.id)]);
     } finally {
-      setGenerating(false);
+      setProgressing(false);
     }
   }
 
@@ -88,11 +80,6 @@ export default function WorkoutsPage() {
     }
   }
 
-  const aiPrograms = history.filter((item) => {
-    const source = String(item.params?.source ?? "");
-    return source.includes("llm") || source.includes("ai") || source.includes("template_ai_adapted");
-  });
-
   return (
     <div className="space-y-6 animate-fade-up">
       <div className="glass-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -101,58 +88,24 @@ export default function WorkoutsPage() {
             <Sparkles size={18} className="text-brand-500" />
             <h2 className="display font-extrabold text-xl">Тренировочные программы</h2>
           </div>
-          <p className="text-sm text-muted mt-1">Генерируй, выбирай и прогрессируй</p>
+          <p className="text-sm text-muted mt-1">
+            Сгенерируйте персональный месячный план или выберите готовый шаблон.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setModalOpen(true)}>
+          <Button onClick={() => router.push("/dashboard/workouts/generate")}>
             <Plus size={16} /> Сгенерировать тренировку
           </Button>
           <Link href="/dashboard/workouts/plan">
-            <Button variant="outline"><Calendar size={16} /> Весь план</Button>
+            <Button variant="outline"><Calendar size={16} /> Просмотреть весь план</Button>
+          </Link>
+          <Link href="/dashboard/exercises">
+            <Button variant="outline"><Dumbbell size={16} /> Смотреть все упражнения</Button>
           </Link>
         </div>
       </div>
 
-      {modalOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Параметры генерации</CardTitle>
-            <button onClick={() => setModalOpen(false)} className="text-muted hover:text-inherit transition">
-              <X size={18} />
-            </button>
-          </CardHeader>
-          <div className="grid md:grid-cols-3 gap-3">
-            <div>
-              <Label>Цель</Label>
-              <Select value={form.goal} onChange={(e) => setForm((p) => ({ ...p, goal: e.target.value }))}>
-                <option value="hypertrophy">Гипертрофия</option>
-                <option value="strength">Сила</option>
-                <option value="recomposition">Рекомпозиция</option>
-              </Select>
-            </div>
-            <div>
-              <Label>Опыт</Label>
-              <Select value={form.training_experience} onChange={(e) => setForm((p) => ({ ...p, training_experience: e.target.value }))}>
-                <option value="beginner">Новичок</option>
-                <option value="intermediate">Средний</option>
-                <option value="advanced">Продвинутый</option>
-              </Select>
-            </div>
-            <div><Label>Дней/неделю</Label><Input type="number" min={3} max={6} value={form.training_days} onChange={(e) => setForm((p) => ({ ...p, training_days: +e.target.value }))} /></div>
-            <div><Label>Вес, кг</Label><Input type="number" value={form.weight_kg} onChange={(e) => setForm((p) => ({ ...p, weight_kg: +e.target.value }))} /></div>
-            <div><Label>Рост, см</Label><Input type="number" value={form.height_cm} onChange={(e) => setForm((p) => ({ ...p, height_cm: +e.target.value }))} /></div>
-            <div><Label>1RM жима лёжа</Label><Input type="number" value={form.bench_1rm} onChange={(e) => setForm((p) => ({ ...p, bench_1rm: +e.target.value }))} /></div>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <Button onClick={generateProgram} disabled={generating}>
-              {generating ? "Генерация…" : "Создать программу"}
-            </Button>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Отмена</Button>
-          </div>
-        </Card>
-      )}
-
-      {plan && (
+      {plan ? (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -163,51 +116,48 @@ export default function WorkoutsPage() {
               <Badge tone="brand">Активная</Badge>
               <Badge>Месяц {plan.month_index}</Badge>
               <Badge>Неделя {plan.cycle_week}</Badge>
-              <Button size="sm" variant="outline" onClick={progress} disabled={progressing}>
-                <RefreshCcw size={14} /> {progressing ? "…" : "Следующая неделя"}
+              <Button size="sm" variant="outline" onClick={regenerate} disabled={progressing}>
+                <RefreshCcw size={14} /> {progressing ? "…" : "Следующий месяц"}
               </Button>
             </div>
           </CardHeader>
           <div className="glass-card p-4 flex items-center gap-4">
             <div className="h-12 w-12 rounded-xl bg-brand-gradient grid place-items-center text-2xl shrink-0">
-              {GOAL_ICON[plan.split_type] ?? "🏋️"}
+              {GOAL_ICON[String(plan.params?.goal ?? "")] ?? "🏋️"}
             </div>
             <div>
               <div className="display font-bold">{plan.name}</div>
-              <div className="text-sm text-muted">{plan.days.length} дней · {plan.split_type}</div>
+              <div className="text-sm text-muted">
+                {plan.days.length} дней · {SPLIT_LABEL[plan.split_type] ?? plan.split_type}
+              </div>
             </div>
           </div>
         </Card>
-      )}
-
-      {aiPrograms.length > 0 && (
+      ) : (
         <Card>
-          <CardHeader><CardTitle>AI программы</CardTitle></CardHeader>
-          <div className="space-y-2">
-            {aiPrograms.map((h) => (
-              <div key={h.id} className="glass-card p-3 flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-violet-500/15 grid place-items-center text-lg shrink-0">🤖</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm truncate">{h.name}</div>
-                  <div className="text-xs text-muted">
-                    Месяц {h.month_index} · {h.split_type} · {String(h.params?.source ?? "ai")}
-                  </div>
-                </div>
-                <Button size="sm" variant="outline" onClick={async () => setPlan(await workoutApi.select(h.id))}>
-                  Выбрать
-                </Button>
-              </div>
-            ))}
+          <CardHeader><CardTitle>Программа ещё не создана</CardTitle></CardHeader>
+          <p className="text-sm text-muted">
+            Заполните анкету — система соберёт месячный план с тестовой неделей и тремя рабочими.
+          </p>
+          <div className="mt-3">
+            <Button onClick={() => router.push("/dashboard/workouts/generate")}>
+              <Plus size={16} /> Заполнить анкету
+            </Button>
           </div>
         </Card>
       )}
 
       {templates.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Предопределенные программы</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Готовые шаблоны</CardTitle></CardHeader>
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
             {templates.map((template) => (
-              <div key={template.id} className={`glass-card p-4 group hover:shadow-glow transition-all duration-300 ${plan?.params?.template_id === template.id ? "ring-1 ring-brand-500/70" : ""}`}>
+              <div
+                key={template.id}
+                className={`glass-card p-4 group hover:shadow-glow transition-all duration-300 ${
+                  Number(plan?.params?.template_id) === template.id ? "ring-1 ring-brand-500/70" : ""
+                }`}
+              >
                 <div className="flex items-start gap-3">
                   <div className="h-10 w-10 rounded-xl bg-violet-500/15 grid place-items-center text-lg shrink-0">
                     {GOAL_ICON[template.split_type] ?? "🏋️"}
@@ -222,7 +172,7 @@ export default function WorkoutsPage() {
                         variant="outline"
                         onClick={() => setExpandedTemplateId((prev) => (prev === template.id ? null : template.id))}
                       >
-                        View
+                        Подробнее
                       </Button>
                       <Button
                         size="sm"
@@ -230,14 +180,14 @@ export default function WorkoutsPage() {
                         disabled={templateActionId === template.id}
                         onClick={() => applyTemplate(template.id)}
                       >
-                        {templateActionId === template.id ? "..." : "Select"}
+                        {templateActionId === template.id ? "…" : "Выбрать"}
                       </Button>
                       <Button
                         size="sm"
                         disabled={templateActionId === template.id}
                         onClick={() => generateFromTemplate(template.id)}
                       >
-                        {templateActionId === template.id ? "..." : "Generate based on this"}
+                        {templateActionId === template.id ? "…" : "Сгенерировать на основе"}
                       </Button>
                     </div>
                   </div>
@@ -247,7 +197,9 @@ export default function WorkoutsPage() {
                     {template.days.map((day) => (
                       <div key={day.id} className="text-xs">
                         <div className="font-semibold">{day.title}</div>
-                        <div className="text-muted">{day.exercises.map((e) => e.exercise_name).join(", ")}</div>
+                        <div className="text-muted">
+                          {day.exercises.map((e) => e.exercise_name).join(", ")}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -261,7 +213,9 @@ export default function WorkoutsPage() {
       <Card>
         <CardHeader><CardTitle>История программ</CardTitle></CardHeader>
         {history.length === 0 ? (
-          <div className="text-sm text-muted text-center py-6">Программ пока нет. Создайте свою первую!</div>
+          <div className="text-sm text-muted text-center py-6">
+            Программ пока нет. Создайте свою первую через анкету.
+          </div>
         ) : (
           <div className="space-y-2">
             {history.map((h) => (
@@ -271,7 +225,9 @@ export default function WorkoutsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate">{h.name}</div>
-                  <div className="text-xs text-muted">Месяц {h.month_index} · {h.split_type}</div>
+                  <div className="text-xs text-muted">
+                    Месяц {h.month_index} · {SPLIT_LABEL[h.split_type] ?? h.split_type}
+                  </div>
                 </div>
                 <Button size="sm" variant="outline" onClick={async () => setPlan(await workoutApi.select(h.id))}>
                   Выбрать

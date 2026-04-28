@@ -4,18 +4,29 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { WorkoutPlan } from "@/features/workout/types";
 
+const PHASE_LABEL: Record<string, string> = {
+  test: "Тестовая",
+  work: "Рабочая",
+};
+
 type Props = {
   plan: WorkoutPlan;
 };
 
 export function WorkoutViewer({ plan }: Props) {
-  const [selectedWeek, setSelectedWeek] = useState(1);
+  const weeks = useMemo(
+    () => Array.from(new Set(plan.days.map((d) => d.week_index))).sort((a, b) => a - b),
+    [plan.days],
+  );
+  const [selectedWeek, setSelectedWeek] = useState(weeks[0] ?? 1);
   const currentDayIndex = useMemo(() => {
     const d = new Date().getDay();
     return d === 0 ? 6 : d - 1;
   }, []);
-  const weeks = useMemo(() => Array.from(new Set(plan.days.map((d) => d.week_index))).sort((a, b) => a - b), [plan.days]);
-  const visibleDays = useMemo(() => plan.days.filter((d) => d.week_index === selectedWeek), [plan.days, selectedWeek]);
+  const visibleDays = useMemo(
+    () => plan.days.filter((d) => d.week_index === selectedWeek),
+    [plan.days, selectedWeek],
+  );
 
   return (
     <div className="space-y-3">
@@ -23,10 +34,15 @@ export function WorkoutViewer({ plan }: Props) {
         {weeks.map((week) => (
           <button
             key={week}
-            className={`px-3 py-1 rounded-lg text-sm border ${selectedWeek === week ? "bg-brand-gradient text-white border-transparent" : "border-[var(--border)]"}`}
+            type="button"
+            className={`px-3 py-1 rounded-lg text-sm border ${
+              selectedWeek === week
+                ? "bg-brand-gradient text-white border-transparent"
+                : "border-[var(--border)]"
+            }`}
             onClick={() => setSelectedWeek(week)}
           >
-            Week {week}
+            Неделя {week}
           </button>
         ))}
       </div>
@@ -37,11 +53,13 @@ export function WorkoutViewer({ plan }: Props) {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="display font-bold">День {day.day_index + 1} · {day.title}</div>
-                <div className="text-xs text-muted">Неделя {day.week_index} · {day.phase}</div>
+                <div className="text-xs text-muted">
+                  Неделя {day.week_index} · {PHASE_LABEL[day.phase] ?? day.phase}
+                </div>
               </div>
               <div className="flex gap-2 items-center">
                 {isToday && <Badge tone="brand">Сегодня</Badge>}
-                <Badge>{day.is_rest ? "Rest" : "Train"}</Badge>
+                <Badge>{day.is_rest ? "Отдых" : "Тренировка"}</Badge>
               </div>
             </div>
             {!day.is_rest && (
@@ -53,22 +71,36 @@ export function WorkoutViewer({ plan }: Props) {
                       <th className="py-2">Подходы</th>
                       <th className="py-2">Повторы</th>
                       <th className="py-2">Вес</th>
+                      <th className="py-2">RIR</th>
                     </tr>
                   </thead>
                   <tbody>
                     {day.exercises.map((ex) => (
-                      <tr key={ex.id} className="border-b border-[var(--border)]/60">
-                        <td className="py-2">{ex.exercise.name_ru || ex.exercise.name}</td>
+                      <tr key={ex.id} className="border-b border-[var(--border)]/60 align-top">
+                        <td className="py-2">
+                          <div className="font-medium">{ex.exercise.name_ru || ex.exercise.name}</div>
+                          {ex.rpe_text && (
+                            <div className="text-[11px] text-muted mt-0.5">{ex.rpe_text}</div>
+                          )}
+                          {ex.is_test_set && ex.test_instruction && (
+                            <div className="text-[11px] text-violet-400 mt-0.5">{ex.test_instruction}</div>
+                          )}
+                        </td>
                         <td className="py-2">{ex.sets}</td>
                         <td className="py-2">{ex.reps}</td>
                         <td className="py-2">{ex.weight_kg ? `${ex.weight_kg} кг` : "—"}</td>
+                        <td className="py-2">
+                          {ex.target_rir !== null && ex.target_rir !== undefined
+                            ? ex.target_rir.toFixed(1)
+                            : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-            {day.is_rest && <div className="mt-2 text-sm text-muted">Восстановление.</div>}
+            {day.is_rest && <div className="mt-2 text-sm text-muted">День восстановления.</div>}
           </div>
         );
       })}

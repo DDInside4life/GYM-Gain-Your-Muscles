@@ -11,12 +11,14 @@ from app.models.blog import BlogPost, BlogCategory
 from app.models.forum import ForumQuestion, ForumComment, ForumReaction
 from app.models.progress import WeightEntry
 from app.models.ai_event import AIEvent
+from app.models.questionnaire import WorkoutQuestionnaire
 
 __all__ = [
     "Base", "User",
     "Exercise", "MuscleGroup", "Equipment",
     "WorkoutPlan", "WorkoutProgram", "WorkoutDay", "WorkoutExercise", "WorkoutFeedback", "WorkoutResult", "Mesocycle", "SetLog",
     "WorkoutTemplate", "TemplateDay", "TemplateExercise",
+    "WorkoutQuestionnaire",
     "NutritionPlan", "PlanMeal", "Meal", "FoodEntry",
     "BlogPost", "BlogCategory",
     "ForumQuestion", "ForumComment", "ForumReaction",

@@ -38,6 +38,8 @@ export type WorkoutExercise = {
   target_percent_1rm?: number | null;
   is_test_set?: boolean;
   test_instruction?: string;
+  target_rir?: number | null;
+  rpe_text?: string;
   exercise: Exercise;
 };
 
@@ -78,6 +80,8 @@ export type WorkoutDayUpdate = {
     target_percent_1rm?: number | null;
     is_test_set?: boolean;
     test_instruction?: string;
+    target_rir?: number | null;
+    rpe_text?: string;
   }>;
 };
 

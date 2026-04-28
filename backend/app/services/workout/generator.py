@@ -1,65 +1,171 @@
+"""Monthly workout plan generator.
+
+Orchestrates the small, single-responsibility modules:
+
+    questionnaire → filtering → volume budget → split / recovery
+                                    │
+                                    ▼
+                        load_progression (sets/reps/weight/RIR)
+                                    │
+                                    ▼
+                              persistence (DB)
+
+The generator deterministically builds 4 weeks: week 1 test, weeks 2-4 working.
+"""
 from __future__ import annotations
 
 import hashlib
 import random
+from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Iterable
 
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.exercise import Equipment, Exercise, ExerciseCategory, MuscleGroup
 from app.models.user import Experience, Goal, User
-from app.models.workout import ProgramPhase, WorkoutDay, WorkoutExercise, WorkoutPlan
+from app.models.workout import (
+    ProgramPhase, SetLog, WorkoutDay, WorkoutExercise, WorkoutPlan, WorkoutResult,
+)
 from app.repositories.exercise import ExerciseRepository
 from app.repositories.workout import WorkoutPlanRepository, WorkoutResultRepository
+from app.schemas.questionnaire import WorkoutQuestionnaireInput
 from app.schemas.workout import WorkoutGenerateInput
-from app.services.workout.rules import (
-    DEFAULT_EQUIPMENT, EXPERIENCE_INTENSITY_MOD, EXPERIENCE_VOLUME_MOD,
-    GOAL_INTENSITY_MOD, GOAL_SCHEME, clamp_sets, resolve_injury_contras, round_to_plate,
+from app.services.workout.explanation import build_explanation
+from app.services.workout.filtering import (
+    FilterCriteria,
+    filter_pool,
+    resolve_contraindications,
+)
+from app.services.workout.load_progression import (
+    LiftRecord,
+    Prescription,
+    build_test_prescription,
+    build_working_prescription,
+    epley_one_rm,
+)
+from app.services.workout.recovery import (
+    DAY_TO_INDEX,
+    DayBlueprint,
+    HEAVY_LOWER_PATTERNS,
+    HEAVY_PUSH_PATTERNS,
+    fatigue_cap,
+    fatigue_score,
+    normalize_available_days,
+    space_heavy_days,
 )
 from app.services.workout.splits import SPLITS, pick_split
+from app.services.workout.volume import (
+    ABSOLUTE_MAX_EXERCISES_PER_DAY,
+    MIN_EXERCISES_PER_DAY,
+    WeeklyMuscleBudget,
+    goal_volume,
+)
 
-MIN_PER_DAY, MAX_PER_DAY = 4, 6
-TOTAL_WEEKS = 5
-TEST_WEEKS = {1, 5}
 
-MUSCLE_LOAD_FACTOR: dict[MuscleGroup, float] = {
-    MuscleGroup.legs: 1.20,
-    MuscleGroup.back: 1.00,
-    MuscleGroup.chest: 0.90,
-    MuscleGroup.glutes: 1.00,
-    MuscleGroup.calves: 0.80,
-    MuscleGroup.full_body: 0.60,
-    MuscleGroup.shoulders: 0.50,
-    MuscleGroup.triceps: 0.30,
-    MuscleGroup.biceps: 0.25,
-    MuscleGroup.forearms: 0.25,
-    MuscleGroup.core: 0.20,
-    MuscleGroup.cardio: 0.00,
-}
+TOTAL_WEEKS = 4
+TEST_WEEKS = {1}
 
 
 @dataclass(slots=True)
-class GeneratedExercise:
+class GenerationContext:
+    user_id: int
+    sex: str
+    age: int
+    height_cm: float
+    weight_kg: float
+    experience: Experience
+    goal: Goal
+    location: str
+    equipment: frozenset[Equipment]
+    contraindications: frozenset[str]
+    days_per_week: int
+    available_day_indices: list[int]
+    notes: str
+    questionnaire_id: int | None = None
+    edit_history: dict | None = None
+
+
+@dataclass(slots=True)
+class _GeneratedExercise:
     exercise: Exercise
-    sets: int
-    reps_min: int
-    reps_max: int
-    rest: int
-    notes: str = ""
-    weight_kg: float | None = None
+    prescription: Prescription
+    position: int
 
 
 @dataclass(slots=True)
-class GeneratedDay:
+class _GeneratedDay:
     day_index: int
     title: str
     focus: str
     is_rest: bool
-    exercises: list[GeneratedExercise] = field(default_factory=list)
+    week_index: int
+    exercises: list[_GeneratedExercise] = field(default_factory=list)
+
+
+def _seed(user_id: int, month: int) -> int:
+    raw = f"{user_id}:{month}".encode()
+    return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
+
+
+def _equipment_set(values: Iterable[str]) -> frozenset[Equipment]:
+    parsed: set[Equipment] = set()
+    for raw in values:
+        key = (raw or "").strip().lower()
+        if key in Equipment._value2member_map_:
+            parsed.add(Equipment(key))
+    if not parsed:
+        parsed = {Equipment.bodyweight, Equipment.dumbbell, Equipment.barbell, Equipment.machine}
+    return frozenset(parsed)
+
+
+def context_from_questionnaire(
+    user: User,
+    payload: WorkoutQuestionnaireInput,
+    *,
+    questionnaire_id: int | None = None,
+    edit_history: dict | None = None,
+) -> GenerationContext:
+    return GenerationContext(
+        user_id=user.id,
+        sex=payload.sex.value,
+        age=payload.age,
+        height_cm=payload.height_cm,
+        weight_kg=payload.weight_kg,
+        experience=payload.experience,
+        goal=payload.goal,
+        location=payload.location,
+        equipment=_equipment_set(payload.equipment),
+        contraindications=resolve_contraindications(payload.injuries),
+        days_per_week=payload.days_per_week,
+        available_day_indices=normalize_available_days(payload.available_days, payload.days_per_week),
+        notes=payload.notes,
+        questionnaire_id=questionnaire_id,
+        edit_history=edit_history,
+    )
+
+
+def context_from_legacy(user: User, payload: WorkoutGenerateInput) -> GenerationContext:
+    return GenerationContext(
+        user_id=user.id,
+        sex=getattr(user.sex, "value", "male") if user.sex else "male",
+        age=payload.age,
+        height_cm=payload.height_cm,
+        weight_kg=payload.weight_kg,
+        experience=payload.experience,
+        goal=payload.goal,
+        location="gym",
+        equipment=_equipment_set(payload.equipment),
+        contraindications=resolve_contraindications(payload.injuries),
+        days_per_week=payload.days_per_week,
+        available_day_indices=normalize_available_days((), payload.days_per_week),
+        notes="",
+    )
 
 
 class WorkoutGenerator:
-    """Deterministic per-user monthly plan generator with test weeks."""
+    """Persists a 4-week monthly plan from a generation context."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -67,228 +173,120 @@ class WorkoutGenerator:
         self.plans = WorkoutPlanRepository(db)
         self.results = WorkoutResultRepository(db)
 
-    @staticmethod
-    def _seed(user_id: int, week: int) -> int:
-        raw = f"{user_id}:{week}".encode()
-        return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
-
-    @staticmethod
-    def _parse_equipment(values: list[str]) -> frozenset[Equipment]:
-        valid = {v for v in values if v in Equipment._value2member_map_}
-        return frozenset(Equipment(v) for v in valid) or DEFAULT_EQUIPMENT
-
-    @staticmethod
-    def _is_safe(ex: Exercise, contras: frozenset[str]) -> bool:
-        return not (contras & set(ex.contraindications))
-
-    def _pick_for_muscle(
-        self,
-        muscle: MuscleGroup,
-        pool: list[Exercise],
-        equipment: frozenset[Equipment],
-        contras: frozenset[str],
-        experience: Experience,
-        goal: Goal,
-        used: set[int],
-        rng: random.Random,
-    ) -> list[Exercise]:
-        candidates = [
-            ex for ex in pool
-            if ex.primary_muscle == muscle
-            and ex.equipment in equipment
-            and ex.id not in used
-            and self._is_safe(ex, contras)
-        ]
-        if experience == Experience.beginner:
-            beginner = [c for c in candidates if c.difficulty <= 3]
-            if beginner:
-                candidates = beginner
-
-        candidates.sort(key=lambda e: (
-            0 if e.category == ExerciseCategory.compound else 1,
-            e.difficulty,
-            e.id,  # deterministic tiebreak
-        ))
-        want = 2 if goal in (Goal.strength, Goal.muscle_gain) else 1
-        # deterministic tiny shuffle among same-rank candidates to add variety
-        rng.shuffle(candidates[:4])
-        return candidates[:want]
-
-    def _fill_to_min(
-        self,
-        current: list[Exercise],
-        pool: list[Exercise],
-        equipment: frozenset[Equipment],
-        contras: frozenset[str],
-        used: set[int],
-    ) -> list[Exercise]:
-        if len(current) >= MIN_PER_DAY:
-            return current
-        filler = [
-            ex for ex in pool
-            if ex.equipment in equipment and ex.id not in used and self._is_safe(ex, contras)
-        ]
-        filler.sort(key=lambda e: (e.difficulty, e.id))
-        for ex in filler:
-            if len(current) >= MIN_PER_DAY:
-                break
-            current.append(ex)
-            used.add(ex.id)
-        return current
-
-    def _estimate_weight(
+    async def generate(
         self,
         user: User,
-        ex: Exercise,
-        experience: Experience,
-        goal: Goal,
-    ) -> float | None:
-        if ex.equipment == Equipment.bodyweight or ex.category == ExerciseCategory.cardio:
-            return None
-        bw = user.weight_kg or 75.0
-        raw = (
-            bw
-            * EXPERIENCE_INTENSITY_MOD[experience]
-            * GOAL_INTENSITY_MOD[goal]
-            * MUSCLE_LOAD_FACTOR.get(ex.primary_muscle, 0.6)
-        )
-        return round_to_plate(raw)
-
-    @staticmethod
-    def _epley_1rm(weight: float, reps: int) -> float:
-        return weight * (1 + reps / 30.0)
-
-    def _target_percent(self, goal: Goal, week_index: int) -> float:
-        if goal == Goal.strength:
-            return min(0.9, 0.8 + (0.03 * (week_index - 2)))
-        return min(0.8, 0.65 + (0.05 * (week_index - 2)))
-
-    async def _working_weight(
-        self,
-        user: User,
-        ex: Exercise,
-        experience: Experience,
-        goal: Goal,
-        week_index: int,
-    ) -> tuple[float | None, float | None]:
-        if ex.equipment == Equipment.bodyweight or ex.category == ExerciseCategory.cardio:
-            return None, None
-        latest = await self.results.by_exercise_latest(user.id, ex.id)
-        if latest is not None:
-            return round_to_plate(latest.estimated_1rm * self._target_percent(goal, week_index)), self._target_percent(goal, week_index)
-        base = self._estimate_weight(user, ex, experience, goal)
-        if base is None:
-            return None, None
-        fallback_1rm = self._epley_1rm(base, 10)
-        return round_to_plate(fallback_1rm * self._target_percent(goal, week_index)), self._target_percent(goal, week_index)
-
-    async def _build_day(
-        self,
+        payload: WorkoutGenerateInput | WorkoutQuestionnaireInput,
         *,
-        day_index: int,
-        template_title: str,
-        muscles: tuple[MuscleGroup, ...],
-        pool: list[Exercise],
-        equipment: frozenset[Equipment],
-        contras: frozenset[str],
-        user: User,
-        experience: Experience,
-        goal: Goal,
-        week_index: int,
-        rng: random.Random,
-    ) -> GeneratedDay:
-        scheme = GOAL_SCHEME[goal]
-        target_sets = clamp_sets(round(scheme.sets * EXPERIENCE_VOLUME_MOD[experience])) if week_index not in TEST_WEEKS else 1
+        questionnaire_id: int | None = None,
+    ) -> WorkoutPlan:
+        if isinstance(payload, WorkoutQuestionnaireInput):
+            ctx = context_from_questionnaire(user, payload, questionnaire_id=questionnaire_id)
+        else:
+            ctx = context_from_legacy(user, payload)
+        return await self.generate_from_context(user, ctx)
 
-        chosen: list[Exercise] = []
-        used: set[int] = set()
-        for muscle in muscles:
-            for ex in self._pick_for_muscle(muscle, pool, equipment, contras, experience, goal, used, rng):
-                if len(chosen) >= MAX_PER_DAY:
-                    break
-                chosen.append(ex)
-                used.add(ex.id)
-            if len(chosen) >= MAX_PER_DAY:
-                break
-
-        chosen = self._fill_to_min(chosen, pool, equipment, contras, used)
-
-        exercises: list[GeneratedExercise] = []
-        for ex in chosen[:MAX_PER_DAY]:
-            if week_index in TEST_WEEKS:
-                exercises.append(GeneratedExercise(
-                    exercise=ex,
-                    sets=1,
-                    reps_min=6,
-                    reps_max=20,
-                    rest=150,
-                    notes="1 set to technical failure. Save achieved reps.",
-                    weight_kg=self._estimate_weight(user, ex, experience, goal),
-                ))
-                continue
-            working_weight, _ = await self._working_weight(user, ex, experience, goal, week_index)
-            fatigue_delta = -1 if week_index == 4 else 0
-            exercises.append(GeneratedExercise(
-                exercise=ex,
-                sets=clamp_sets(target_sets + fatigue_delta),
-                reps_min=scheme.reps_min if goal == Goal.strength else max(6, scheme.reps_min + (4 - week_index)),
-                reps_max=scheme.reps_max if goal == Goal.strength else max(8, scheme.reps_max + (4 - week_index)),
-                rest=scheme.rest_sec + (30 if goal == Goal.strength else 0),
-                notes=f"Progressive overload week {week_index}",
-                weight_kg=working_weight,
-            ))
-        return GeneratedDay(
-            day_index=day_index,
-            title=template_title,
-            focus=", ".join(m.value for m in muscles),
-            is_rest=False,
-            exercises=exercises,
-        )
-
-    async def generate(self, user: User, payload: WorkoutGenerateInput) -> WorkoutPlan:
-        split_key = pick_split(payload.days_per_week, payload.experience)
-        template = SPLITS[split_key][: payload.days_per_week]
-        equipment = self._parse_equipment(payload.equipment)
-        contras = resolve_injury_contras(payload.injuries)
-
+    async def generate_from_context(self, user: User, ctx: GenerationContext) -> WorkoutPlan:
         pool = await self.exercises.list_filtered(active_only=True)
         if not pool:
-            raise ValueError("Exercise catalogue is empty; seed data missing")
+            raise ValueError("Каталог упражнений пуст: запустите сидер")
+
+        filtered = filter_pool(
+            pool,
+            FilterCriteria(
+                location=ctx.location,
+                equipment=ctx.equipment,
+                contraindications=ctx.contraindications,
+                experience=ctx.experience,
+            ),
+        )
+        if len(filtered) < MIN_EXERCISES_PER_DAY:
+            filtered = filter_pool(
+                pool,
+                FilterCriteria(
+                    location=ctx.location,
+                    equipment=frozenset(),
+                    contraindications=ctx.contraindications,
+                    experience=ctx.experience,
+                ),
+            )
+        if not filtered:
+            raise ValueError("После фильтрации не осталось безопасных упражнений")
 
         prev = await self.plans.latest_for_user(user.id)
         next_month = (prev.month_index + 1) if prev else 1
-        rng = random.Random(self._seed(user.id, next_month))
+        rng = random.Random(_seed(user.id, next_month))
 
-        days: list[GeneratedDay] = []
-        absolute_day = 0
+        split_key = pick_split(ctx.days_per_week, ctx.experience)
+        templates = SPLITS[split_key][: ctx.days_per_week]
+
+        blueprints = [
+            DayBlueprint(
+                title=tmpl.title,
+                focus=", ".join(m.value for m in tmpl.muscles),
+                is_rest=False,
+                primary_muscles=tmpl.muscles,
+                heavy_compound=any(m in {MuscleGroup.legs, MuscleGroup.back, MuscleGroup.chest, MuscleGroup.shoulders} for m in tmpl.muscles),
+            )
+            for tmpl in templates
+        ]
+        slots = space_heavy_days(blueprints, ctx.available_day_indices)
+
+        records = await self._lift_records(user.id)
+        edit_history = ctx.edit_history or {}
+        avoid_ids = set(edit_history.get("avoid_exercise_ids") or [])
+        prefer_ids = set(edit_history.get("prefer_exercise_ids") or [])
+
+        days: list[_GeneratedDay] = []
         for week_index in range(1, TOTAL_WEEKS + 1):
-            week_template = SPLITS[split_key][: payload.days_per_week]
-            for i in range(7):
-                if i < len(week_template):
-                    tmpl = week_template[i]
-                    days.append(await self._build_day(
-                        day_index=absolute_day,
-                        template_title=f"W{week_index} · {tmpl.title}",
-                        muscles=tmpl.muscles,
-                        pool=pool,
-                        equipment=equipment,
-                        contras=contras,
-                        user=user,
-                        experience=payload.experience,
-                        goal=payload.goal,
+            weekly_budget = WeeklyMuscleBudget.for_experience(ctx.experience)
+            assigned_index = 0
+            for day_of_week in range(7):
+                if day_of_week in slots:
+                    template_idx = slots.index(day_of_week)
+                    template = templates[template_idx]
+                    used_archetypes: set[str] = set()
+                    day = await self._build_day(
+                        absolute_index=week_index * 100 + day_of_week,
+                        day_index=(week_index - 1) * 7 + day_of_week,
                         week_index=week_index,
+                        title=template.title,
+                        focus=", ".join(m.value for m in template.muscles),
+                        muscles=template.muscles,
+                        pool=filtered,
+                        ctx=ctx,
                         rng=rng,
-                    ))
+                        records=records,
+                        weekly_budget=weekly_budget,
+                        used_archetypes=used_archetypes,
+                        avoid_ids=avoid_ids,
+                        prefer_ids=prefer_ids,
+                    )
+                    days.append(day)
+                    assigned_index += 1
                 else:
-                    days.append(GeneratedDay(absolute_day, f"W{week_index} · Rest", "recovery", True))
-                absolute_day += 1
+                    days.append(_GeneratedDay(
+                        day_index=(week_index - 1) * 7 + day_of_week,
+                        title="Отдых",
+                        focus="восстановление",
+                        is_rest=True,
+                        week_index=week_index,
+                    ))
 
         await self.plans.deactivate_all(user.id)
 
-        scheme = GOAL_SCHEME[payload.goal]
+        explanation = build_explanation(
+            goal=ctx.goal,
+            experience=ctx.experience,
+            days_per_week=ctx.days_per_week,
+            split_key=split_key,
+            location=ctx.location,
+            has_previous_results=any(r.estimated_1rm for r in records.values()),
+        )
+
         plan = WorkoutPlan(
             user_id=user.id,
-            name=f"Month {next_month} · {split_key.replace('_', ' ').title()}",
+            name=f"Месяц {next_month} · {self._split_name_ru(split_key)}",
             week_number=(prev.week_number + TOTAL_WEEKS) if prev else TOTAL_WEEKS,
             month_index=next_month,
             cycle_week=1,
@@ -296,52 +294,283 @@ class WorkoutGenerator:
             split_type=split_key,
             is_active=True,
             params={
-                "goal": payload.goal.value,
-                "experience": payload.experience.value,
-                "days_per_week": payload.days_per_week,
-                "equipment": sorted(e.value for e in equipment),
-                "injuries": payload.injuries,
-                "scheme": {
-                    "sets": scheme.sets, "reps_min": scheme.reps_min, "reps_max": scheme.reps_max,
-                    "rest_sec": scheme.rest_sec, "rpe": scheme.rpe,
-                },
-                "cycle": {
-                    "weeks_total": TOTAL_WEEKS,
-                    "test_weeks": sorted(TEST_WEEKS),
-                    "method": "epley+progressive-overload+fatigue-control",
-                },
+                "goal": ctx.goal.value,
+                "experience": ctx.experience.value,
+                "location": ctx.location,
+                "days_per_week": ctx.days_per_week,
+                "available_days": [list(DAY_TO_INDEX.keys())[idx] for idx in ctx.available_day_indices],
+                "equipment": sorted(e.value for e in ctx.equipment),
+                "injuries": sorted(ctx.contraindications),
+                "questionnaire_id": ctx.questionnaire_id,
+                "explanation_ru": explanation,
+                "method": "test_week+intensity_volume_blend+double_progression",
+                "user_edits": edit_history,
             },
         )
         self.db.add(plan)
         await self.db.flush()
 
         for gd in days:
-            week_index = (gd.day_index // 7) + 1
             day_row = WorkoutDay(
-                plan_id=plan.id, day_index=gd.day_index,
-                title=gd.title, focus=gd.focus, is_rest=gd.is_rest, week_index=week_index,
-                phase=ProgramPhase.test if week_index in TEST_WEEKS else ProgramPhase.work,
+                plan_id=plan.id,
+                day_index=gd.day_index,
+                title=gd.title,
+                focus=gd.focus,
+                is_rest=gd.is_rest,
+                week_index=gd.week_index,
+                phase=ProgramPhase.test if gd.week_index in TEST_WEEKS else ProgramPhase.work,
             )
             self.db.add(day_row)
             await self.db.flush()
-            for pos, ge in enumerate(gd.exercises):
-                percent = self._target_percent(payload.goal, week_index) if week_index not in TEST_WEEKS else None
+            for ge in gd.exercises:
                 self.db.add(WorkoutExercise(
                     day_id=day_row.id,
                     exercise_id=ge.exercise.id,
-                    position=pos,
-                    sets=ge.sets,
-                    reps_min=ge.reps_min,
-                    reps_max=ge.reps_max,
-                    weight_kg=ge.weight_kg,
-                    rest_sec=ge.rest,
-                    notes=ge.notes,
-                    target_percent_1rm=percent,
-                    is_test_set=week_index in TEST_WEEKS,
-                    test_instruction="AMRAP one set; submit result for 1RM." if week_index in TEST_WEEKS else "",
+                    position=ge.position,
+                    sets=ge.prescription.sets,
+                    reps_min=ge.prescription.reps_min,
+                    reps_max=ge.prescription.reps_max,
+                    weight_kg=ge.prescription.weight_kg,
+                    rest_sec=ge.prescription.rest_sec,
+                    notes=ge.prescription.notes,
+                    target_percent_1rm=ge.prescription.target_percent_1rm,
+                    is_test_set=ge.prescription.is_test_set,
+                    test_instruction=ge.prescription.test_instruction,
+                    target_rir=ge.prescription.target_rir,
+                    rpe_text=ge.prescription.rpe_text,
                 ))
 
         await self.db.commit()
         fresh = await self.plans.get_with_days(plan.id)
         assert fresh is not None
         return fresh
+
+    async def _build_day(
+        self,
+        *,
+        absolute_index: int,
+        day_index: int,
+        week_index: int,
+        title: str,
+        focus: str,
+        muscles: tuple[MuscleGroup, ...],
+        pool: list[Exercise],
+        ctx: GenerationContext,
+        rng: random.Random,
+        records: dict[int, LiftRecord],
+        weekly_budget: WeeklyMuscleBudget,
+        used_archetypes: set[str],
+        avoid_ids: set[int],
+        prefer_ids: set[int],
+    ) -> _GeneratedDay:
+        cfg = goal_volume(ctx.goal)
+        max_per_day = cfg.max_exercises_per_day
+        chosen: list[Exercise] = []
+        used_ids: set[int] = set()
+
+        for muscle in muscles:
+            if len(chosen) >= max_per_day:
+                break
+            for ex in self._pick_for_muscle(
+                muscle=muscle,
+                pool=pool,
+                week_index=week_index,
+                ctx=ctx,
+                used_ids=used_ids,
+                used_archetypes=used_archetypes,
+                weekly_budget=weekly_budget,
+                rng=rng,
+                avoid_ids=avoid_ids,
+                prefer_ids=prefer_ids,
+            ):
+                if len(chosen) >= max_per_day:
+                    break
+                chosen.append(ex)
+                used_ids.add(ex.id)
+                used_archetypes.add(ex.movement_archetype)
+                weekly_budget.add(ex.primary_muscle, sets_for(ex, ctx.goal))
+
+        chosen = self._fill_to_min(chosen, pool, ctx, used_ids, used_archetypes, weekly_budget)
+
+        day_fatigue = 0
+        cap = fatigue_cap(ctx.experience)
+
+        gd = _GeneratedDay(
+            day_index=day_index,
+            title=f"Неделя {week_index} · {self._title_ru(title)}",
+            focus=self._focus_ru(focus),
+            is_rest=False,
+            week_index=week_index,
+        )
+
+        for position, ex in enumerate(chosen):
+            cost = fatigue_score(muscles, ex.category)
+            if day_fatigue + cost > cap and len(gd.exercises) >= MIN_EXERCISES_PER_DAY:
+                break
+            day_fatigue += cost
+
+            if week_index in TEST_WEEKS and ex.suitable_for_test:
+                prescription = build_test_prescription(ex, ctx.experience, ctx.goal)
+            else:
+                record = records.get(ex.id, LiftRecord())
+                e1rm = record.estimated_1rm
+                prescription = build_working_prescription(
+                    ex, ctx.experience, ctx.goal, week_index, e1rm,
+                )
+            gd.exercises.append(_GeneratedExercise(
+                exercise=ex,
+                prescription=prescription,
+                position=position,
+            ))
+        return gd
+
+    def _pick_for_muscle(
+        self,
+        *,
+        muscle: MuscleGroup,
+        pool: list[Exercise],
+        week_index: int,
+        ctx: GenerationContext,
+        used_ids: set[int],
+        used_archetypes: set[str],
+        weekly_budget: WeeklyMuscleBudget,
+        rng: random.Random,
+        avoid_ids: set[int],
+        prefer_ids: set[int],
+    ) -> list[Exercise]:
+        candidates = [
+            ex for ex in pool
+            if ex.primary_muscle == muscle
+            and ex.id not in used_ids
+            and ex.id not in avoid_ids
+            and (ex.movement_archetype not in used_archetypes or ex.category != ExerciseCategory.compound)
+        ]
+        if week_index in TEST_WEEKS:
+            test_first = [c for c in candidates if c.suitable_for_test]
+            others = [c for c in candidates if not c.suitable_for_test]
+            candidates = test_first + others
+
+        candidates.sort(key=lambda e: (
+            0 if e.id in prefer_ids else 1,
+            0 if e.category == ExerciseCategory.compound else 1,
+            e.difficulty,
+            e.id,
+        ))
+
+        sets_required = goal_volume(ctx.goal).sets_per_compound
+        affordable = [c for c in candidates if weekly_budget.can_add(muscle, sets_for(c, ctx.goal))]
+        if not affordable and candidates:
+            affordable = candidates[:1]
+
+        if affordable:
+            head = affordable[: min(4, len(affordable))]
+            tail = affordable[len(head):]
+            rng.shuffle(head)
+            affordable = head + tail
+
+        want = 2 if ctx.goal in (Goal.muscle_gain, Goal.strength) else 1
+        return affordable[:want]
+
+    def _fill_to_min(
+        self,
+        chosen: list[Exercise],
+        pool: list[Exercise],
+        ctx: GenerationContext,
+        used_ids: set[int],
+        used_archetypes: set[str],
+        weekly_budget: WeeklyMuscleBudget,
+    ) -> list[Exercise]:
+        if len(chosen) >= MIN_EXERCISES_PER_DAY:
+            return chosen[: ABSOLUTE_MAX_EXERCISES_PER_DAY]
+        candidates = [
+            ex for ex in pool
+            if ex.id not in used_ids
+            and weekly_budget.can_add(ex.primary_muscle, sets_for(ex, ctx.goal))
+        ]
+        candidates.sort(key=lambda e: (e.difficulty, e.id))
+        for ex in candidates:
+            if len(chosen) >= MIN_EXERCISES_PER_DAY:
+                break
+            chosen.append(ex)
+            used_ids.add(ex.id)
+            used_archetypes.add(ex.movement_archetype)
+            weekly_budget.add(ex.primary_muscle, sets_for(ex, ctx.goal))
+        return chosen[: ABSOLUTE_MAX_EXERCISES_PER_DAY]
+
+    async def _lift_records(self, user_id: int) -> dict[int, LiftRecord]:
+        result_stmt = (
+            select(WorkoutResult)
+            .where(WorkoutResult.user_id == user_id)
+            .order_by(desc(WorkoutResult.created_at))
+        )
+        rows = (await self.db.execute(result_stmt)).scalars().all()
+        records: dict[int, LiftRecord] = {}
+        for row in rows:
+            if row.exercise_id in records:
+                continue
+            records[row.exercise_id] = LiftRecord(
+                estimated_1rm=row.estimated_1rm,
+                last_weight=row.weight_kg,
+                last_reps_completed=row.reps_completed,
+            )
+
+        log_stmt = (
+            select(SetLog)
+            .where(SetLog.user_id == user_id)
+            .order_by(desc(SetLog.created_at))
+            .limit(200)
+        )
+        log_rows = (await self.db.execute(log_stmt)).scalars().all()
+        agg: dict[int, list[SetLog]] = defaultdict(list)
+        for row in log_rows:
+            agg[row.exercise_id].append(row)
+        for exercise_id, sets in agg.items():
+            valid = [s for s in sets if s.rir is not None and 0.5 <= s.rir <= 5 and 3 <= s.completed_reps <= 15]
+            if not valid:
+                continue
+            best_e1rm = max(epley_one_rm(s.completed_weight_kg, s.completed_reps) for s in valid)
+            last = sets[0]
+            existing = records.get(exercise_id)
+            base_e1rm = existing.estimated_1rm if existing and existing.estimated_1rm else None
+            records[exercise_id] = LiftRecord(
+                estimated_1rm=max(base_e1rm or 0.0, best_e1rm) or best_e1rm,
+                last_weight=last.completed_weight_kg,
+                last_reps_completed=last.completed_reps,
+                last_rir=last.rir,
+                successful_streak=sum(1 for s in valid if s.rir >= 1.0),
+            )
+        return records
+
+    @staticmethod
+    def _split_name_ru(split_key: str) -> str:
+        return {
+            "full_body": "Фулл-боди",
+            "upper_lower": "Верх/Низ",
+            "ppl": "Тяни/Толкай/Ноги",
+        }.get(split_key, split_key)
+
+    @staticmethod
+    def _title_ru(title: str) -> str:
+        mapping = {
+            "Full A": "Фулл A", "Full B": "Фулл B", "Full C": "Фулл C",
+            "Upper A": "Верх A", "Upper B": "Верх B",
+            "Lower A": "Низ A", "Lower B": "Низ B",
+            "Push": "Толкающий", "Pull": "Тянущий", "Legs": "Ноги",
+        }
+        return mapping.get(title, title)
+
+    @staticmethod
+    def _focus_ru(focus: str) -> str:
+        mapping = {
+            "legs": "ноги", "chest": "грудь", "back": "спина", "shoulders": "плечи",
+            "biceps": "бицепс", "triceps": "трицепс", "core": "пресс",
+            "glutes": "ягодицы", "calves": "икры", "forearms": "предплечья",
+            "full_body": "всё тело", "cardio": "кардио",
+        }
+        parts = [mapping.get(p.strip(), p.strip()) for p in focus.split(",")]
+        return ", ".join(p for p in parts if p)
+
+
+def sets_for(exercise: Exercise, goal: Goal) -> int:
+    cfg = goal_volume(goal)
+    return cfg.sets_per_compound if exercise.category == ExerciseCategory.compound else cfg.sets_per_isolation

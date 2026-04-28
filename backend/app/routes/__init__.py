@@ -11,6 +11,7 @@ from app.routes import (
     intelligent_training,
     meals,
     nutrition,
+    questionnaires,
     templates,
     users,
     workouts,
@@ -21,6 +22,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(exercises.router, prefix="/exercises", tags=["exercises"])
 api_router.include_router(workouts.router, prefix="/workouts", tags=["workouts"])
+api_router.include_router(questionnaires.router, prefix="/workouts/questionnaires", tags=["questionnaires"])
 api_router.include_router(nutrition.router, prefix="/nutrition", tags=["nutrition"])
 api_router.include_router(meals.router, prefix="/meals", tags=["meals"])
 api_router.include_router(food_entries.router, prefix="/food-entries", tags=["food-entries"])

@@ -6,12 +6,14 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFound
 from app.models.workout import WorkoutDay, WorkoutExercise
 from app.repositories.exercise import ExerciseRepository
+from app.repositories.questionnaire import WorkoutQuestionnaireRepository
 from app.repositories.workout import WorkoutPlanRepository, WorkoutResultRepository
+from app.schemas.questionnaire import WorkoutQuestionnaireInput
+from app.schemas.template import TemplateGenerateWorkoutInput
 from app.schemas.workout import (
     WorkoutDayPatch, WorkoutFeedbackInput, WorkoutFeedbackRead, WorkoutGenerateInput, WorkoutPlanRead,
     WorkoutResultInput, WorkoutResultRead,
 )
-from app.schemas.template import TemplateGenerateWorkoutInput
 from app.services.workout import ProgressionService, TemplateProgramService, WorkoutGenerator
 
 router = APIRouter()
@@ -20,6 +22,18 @@ router = APIRouter()
 @router.post("/generate", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)
 async def generate_plan(
     payload: WorkoutGenerateInput, user: CurrentUser, db: DbSession,
+) -> WorkoutPlanRead:
+    plan = await WorkoutGenerator(db).generate(user, payload)
+    return WorkoutPlanRead.model_validate(plan)
+
+
+@router.post(
+    "/generate-from-questionnaire",
+    response_model=WorkoutPlanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_from_questionnaire_inline(
+    payload: WorkoutQuestionnaireInput, user: CurrentUser, db: DbSession,
 ) -> WorkoutPlanRead:
     plan = await WorkoutGenerator(db).generate(user, payload)
     return WorkoutPlanRead.model_validate(plan)
@@ -54,7 +68,11 @@ async def predefined_programs(db: DbSession) -> list[dict]:
     ]
 
 
-@router.post("/generate-from-template", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/generate-from-template",
+    response_model=WorkoutPlanRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def generate_from_template(
     payload: TemplateGenerateWorkoutInput,
     user: CurrentUser,
@@ -68,7 +86,7 @@ async def generate_from_template(
 async def progress(user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
     current = await WorkoutPlanRepository(db).latest_for_user(user.id)
     if current is None:
-        raise NotFound("No active plan")
+        raise NotFound("Нет активного плана")
     params = current.params or {}
     payload = WorkoutGenerateInput(
         weight_kg=float(getattr(user, "weight_kg", 75) or 75),
@@ -81,6 +99,32 @@ async def progress(user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
         days_per_week=int(params.get("days_per_week", 4)),
     )
     plan = await WorkoutGenerator(db).generate(user, payload)
+    return WorkoutPlanRead.model_validate(plan)
+
+
+@router.post("/regenerate", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)
+async def regenerate_next_month(user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
+    questionnaire = await WorkoutQuestionnaireRepository(db).latest_for_user(user.id)
+    if questionnaire is None:
+        raise NotFound("Заполните анкету тренировки перед перегенерацией")
+    payload = WorkoutQuestionnaireInput.model_validate({
+        "sex": questionnaire.sex,
+        "age": questionnaire.age,
+        "height_cm": questionnaire.height_cm,
+        "weight_kg": questionnaire.weight_kg,
+        "experience": questionnaire.experience,
+        "goal": questionnaire.goal,
+        "location": questionnaire.location,
+        "equipment": questionnaire.equipment,
+        "injuries": questionnaire.injuries,
+        "days_per_week": questionnaire.days_per_week,
+        "available_days": questionnaire.available_days,
+        "notes": questionnaire.notes,
+    })
+    plan = await WorkoutGenerator(db).generate(user, payload, questionnaire_id=questionnaire.id)
+    questionnaire.plan_id = plan.id
+    await db.commit()
+    plan = await WorkoutPlanRepository(db).get_with_days(plan.id) or plan
     return WorkoutPlanRead.model_validate(plan)
 
 
@@ -99,7 +143,7 @@ async def feedback(
 async def get_plan(plan_id: int, user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
     plan = await WorkoutPlanRepository(db).get_with_days(plan_id)
     if plan is None or plan.user_id != user.id:
-        raise NotFound("Plan not found")
+        raise NotFound("План не найден")
     return WorkoutPlanRead.model_validate(plan)
 
 
@@ -108,7 +152,7 @@ async def select_plan(plan_id: int, user: CurrentUser, db: DbSession) -> Workout
     repo = WorkoutPlanRepository(db)
     plan = await repo.mark_active(user.id, plan_id)
     if plan is None:
-        raise NotFound("Plan not found")
+        raise NotFound("План не найден")
     await db.commit()
     fresh = await repo.get_with_days(plan_id)
     assert fresh is not None
@@ -122,10 +166,27 @@ async def update_day(
     repo = WorkoutPlanRepository(db)
     plan = await repo.get_with_days(plan_id)
     if plan is None or plan.user_id != user.id:
-        raise NotFound("Plan not found")
+        raise NotFound("План не найден")
     day = next((d for d in plan.days if d.id == day_id), None)
     if day is None:
-        raise NotFound("Day not found")
+        raise NotFound("День не найден")
+
+    exercise_ids = {item.exercise_id for item in payload.exercises}
+    valid_exercises = {
+        ex.id: ex
+        for ex in (
+            await ExerciseRepository(db).list_filtered(active_only=True)
+        )
+        if ex.id in exercise_ids
+    }
+    if exercise_ids and len(valid_exercises) != len(exercise_ids):
+        raise NotFound("Одно из упражнений не найдено или неактивно")
+
+    previous_ids = {ex.exercise_id for ex in day.exercises}
+    new_ids = exercise_ids
+    removed = previous_ids - new_ids
+    added = new_ids - previous_ids
+
     day.exercises.clear()
     for pos, item in enumerate(payload.exercises):
         day.exercises.append(WorkoutExercise(
@@ -141,7 +202,19 @@ async def update_day(
             target_percent_1rm=item.target_percent_1rm,
             is_test_set=item.is_test_set,
             test_instruction=item.test_instruction,
+            target_rir=item.target_rir,
+            rpe_text=item.rpe_text,
         ))
+
+    history = dict(plan.params or {})
+    edits = dict(history.get("user_edits") or {})
+    avoid = set(edits.get("avoid_exercise_ids") or []) | removed
+    prefer = (set(edits.get("prefer_exercise_ids") or []) | added) - removed
+    edits["avoid_exercise_ids"] = sorted(avoid)
+    edits["prefer_exercise_ids"] = sorted(prefer)
+    history["user_edits"] = edits
+    plan.params = history
+
     await db.commit()
     fresh = await repo.get_with_days(plan_id)
     assert fresh is not None
@@ -154,16 +227,16 @@ async def submit_result(
 ) -> WorkoutResultRead:
     we = await db.get(WorkoutExercise, payload.workout_exercise_id)
     if we is None:
-        raise NotFound("Workout exercise not found")
+        raise NotFound("Упражнение тренировки не найдено")
     day = await db.get(WorkoutDay, we.day_id)
     if day is None:
-        raise NotFound("Workout day not found")
+        raise NotFound("День тренировки не найден")
     plan = await WorkoutPlanRepository(db).get(day.plan_id)
     if plan is None or plan.user_id != user.id:
-        raise NotFound("Plan not found")
+        raise NotFound("План не найден")
     exercise = await ExerciseRepository(db).get(we.exercise_id)
     if exercise is None:
-        raise NotFound("Exercise not found")
+        raise NotFound("Упражнение не найдено")
     estimated = round(payload.weight_kg * (1 + payload.reps_completed / 30.0), 2)
     row = await WorkoutResultRepository(db).upsert(
         user_id=user.id,

@@ -30,6 +30,8 @@ class WorkoutExerciseRead(ORMModel, TimestampMixin):
     target_percent_1rm: float | None = None
     is_test_set: bool = False
     test_instruction: str = ""
+    target_rir: float | None = None
+    rpe_text: str = ""
     exercise: ExerciseRead
 
     @computed_field  # type: ignore[misc]
@@ -93,6 +95,8 @@ class WorkoutExercisePatch(BaseModel):
     target_percent_1rm: float | None = Field(default=None, ge=0.0, le=1.0)
     is_test_set: bool = False
     test_instruction: str = Field(default="", max_length=240)
+    target_rir: float | None = Field(default=None, ge=0.0, le=10.0)
+    rpe_text: str = Field(default="", max_length=200)
 
 
 class WorkoutDayPatch(BaseModel):
