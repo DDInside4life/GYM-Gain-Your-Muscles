@@ -14,6 +14,8 @@ export type User = {
   experience: "beginner" | "intermediate" | "advanced" | null;
   goal: string | null;
   activity_factor: number;
+  global_restrictions: string[];
+  priority_exercise_ids: number[];
 };
 
 type Store = {

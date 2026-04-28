@@ -1,28 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Dumbbell, Edit3, Flame, Scale, Target, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, Dumbbell, Flame, Save, Scale, Target, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Chip, OptionCard } from "@/components/ui/option-card";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
 import { workoutApi } from "@/features/workout/api";
-
-const EXPERIENCE_LABEL: Record<string, string> = {
-  beginner: "Новичок",
-  intermediate: "Средний",
-  advanced: "Продвинутый",
-};
-
-const GOAL_LABEL: Record<string, string> = {
-  muscle_gain: "Набор массы",
-  fat_loss: "Жиросжигание",
-  strength: "Сила",
-  endurance: "Выносливость",
-  general: "Общее",
-};
+import {
+  EXPERIENCE_OPTIONS,
+  GOAL_OPTIONS,
+  RESTRICTION_OPTIONS,
+  SEX_OPTIONS,
+} from "@/features/workout/constants";
+import type { Experience, Exercise, Goal } from "@/features/workout/types";
 
 const PERSONAL_RECORDS = [
   { label: "Жим лёжа", value: 105, unit: "кг" },
@@ -32,42 +26,118 @@ const PERSONAL_RECORDS = [
   { label: "Жим стоя", value: 70, unit: "кг" },
 ];
 
+type ProfileForm = {
+  full_name: string;
+  sex: "" | "male" | "female";
+  height_cm: number;
+  weight_kg: number;
+  experience: Experience;
+  goal: Goal;
+  activity_factor: number;
+  global_restrictions: string[];
+  priority_exercise_ids: number[];
+};
+
 export default function ProfilePage() {
   const user = useAuth((s) => s.user)!;
   const refreshMe = useAuth((s) => s.refreshMe);
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [error, setError] = useState<string>("");
   const [workoutCount, setWorkoutCount] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [exerciseQuery, setExerciseQuery] = useState("");
+
+  const [form, setForm] = useState<ProfileForm>({
     full_name: user.full_name ?? "",
     sex: user.sex ?? "",
     height_cm: user.height_cm ?? 175,
     weight_kg: user.weight_kg ?? 75,
-    experience: user.experience ?? "intermediate",
-    goal: user.goal ?? "muscle_gain",
+    experience: (user.experience as Experience) ?? "intermediate",
+    goal: (user.goal as Goal) ?? "muscle_gain",
     activity_factor: user.activity_factor ?? 1.55,
+    global_restrictions: user.global_restrictions ?? [],
+    priority_exercise_ids: user.priority_exercise_ids ?? [],
   });
 
   useEffect(() => {
     workoutApi.history().then((h) => setWorkoutCount(h.length)).catch(() => {});
+    api<Exercise[]>("/exercises").then(setExercises).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      full_name: user.full_name ?? prev.full_name,
+      sex: (user.sex ?? prev.sex) as ProfileForm["sex"],
+      height_cm: user.height_cm ?? prev.height_cm,
+      weight_kg: user.weight_kg ?? prev.weight_kg,
+      experience: (user.experience as Experience) ?? prev.experience,
+      goal: (user.goal as Goal) ?? prev.goal,
+      activity_factor: user.activity_factor ?? prev.activity_factor,
+      global_restrictions: user.global_restrictions ?? prev.global_restrictions,
+      priority_exercise_ids: user.priority_exercise_ids ?? prev.priority_exercise_ids,
+    }));
+  }, [user]);
+
+  const filteredExercises = useMemo(() => {
+    const query = exerciseQuery.trim().toLowerCase();
+    if (!query) return exercises.slice(0, 60);
+    return exercises
+      .filter((ex) => (ex.name_ru || ex.name).toLowerCase().includes(query))
+      .slice(0, 60);
+  }, [exerciseQuery, exercises]);
+
+  const goalOption = GOAL_OPTIONS.find((g) => g.value === form.goal);
+
+  const setField = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  function toggleRestriction(value: string) {
+    setForm((prev) => {
+      const has = prev.global_restrictions.includes(value);
+      return {
+        ...prev,
+        global_restrictions: has
+          ? prev.global_restrictions.filter((r) => r !== value)
+          : [...prev.global_restrictions, value],
+      };
+    });
+  }
+
+  function togglePriorityExercise(id: number) {
+    setForm((prev) => {
+      const has = prev.priority_exercise_ids.includes(id);
+      const next = has
+        ? prev.priority_exercise_ids.filter((eid) => eid !== id)
+        : [...prev.priority_exercise_ids, id].slice(0, 24);
+      return { ...prev, priority_exercise_ids: next };
+    });
+  }
 
   async function save() {
     setSaving(true);
+    setError("");
     try {
       await api("/users/me", {
         method: "PUT",
         body: JSON.stringify({
-          ...form,
+          full_name: form.full_name || undefined,
           sex: form.sex || undefined,
           height_cm: Number(form.height_cm),
           weight_kg: Number(form.weight_kg),
+          experience: form.experience,
+          goal: form.goal,
           activity_factor: Number(form.activity_factor),
+          global_restrictions: form.global_restrictions,
+          priority_exercise_ids: form.priority_exercise_ids,
         }),
         auth: true,
       });
       await refreshMe();
-      setEditing(false);
+      setSavedAt(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось сохранить профиль");
     } finally {
       setSaving(false);
     }
@@ -79,16 +149,20 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle>Моя статистика</CardTitle>
           <div className="flex flex-wrap gap-2">
-            <Badge tone="brand">{EXPERIENCE_LABEL[form.experience] ?? form.experience}</Badge>
-            <Badge tone="violet">{GOAL_LABEL[form.goal] ?? form.goal}</Badge>
+            <Badge tone="brand">
+              {EXPERIENCE_OPTIONS.find((o) => o.value === form.experience)?.label ?? "—"}
+            </Badge>
+            <Badge tone="violet">
+              {goalOption?.label ?? "—"}
+            </Badge>
           </div>
         </CardHeader>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { icon: <Dumbbell size={18} />, value: workoutCount || 48, label: "Всего тренировок" },
-            { icon: <Flame size={18} />, value: "12 540", label: "Ккал за период" },
-            { icon: <Target size={18} />, value: 12, label: "Дней подряд" },
+            { icon: <Dumbbell size={18} />, value: workoutCount || 0, label: "Программ создано" },
+            { icon: <Flame size={18} />, value: form.priority_exercise_ids.length, label: "Приоритетных" },
+            { icon: <Target size={18} />, value: form.global_restrictions.length, label: "Ограничений" },
             { icon: <Scale size={18} />, value: `${form.weight_kg} кг`, label: "Текущий вес" },
           ].map((s) => (
             <div key={s.label} className="glass-card p-4 hover-lift">
@@ -107,79 +181,185 @@ export default function ProfilePage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Личные данные</CardTitle>
+          <span className="text-xs text-muted">Используется при расчёте стартовых нагрузок</span>
+        </CardHeader>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <Label>Имя</Label>
+            <Input value={form.full_name} onChange={(e) => setField("full_name", e.target.value)} />
+          </div>
+          <div>
+            <Label>Коэффициент активности</Label>
+            <Input
+              type="number"
+              step={0.05}
+              min={1.2}
+              max={2.4}
+              value={form.activity_factor}
+              onChange={(e) => setField("activity_factor", Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Рост (см)</Label>
+            <Input
+              type="number"
+              min={120}
+              max={230}
+              value={form.height_cm}
+              onChange={(e) => setField("height_cm", Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Вес тела (кг)</Label>
+            <Input
+              type="number"
+              min={30}
+              max={250}
+              value={form.weight_kg}
+              onChange={(e) => setField("weight_kg", Number(e.target.value))}
+            />
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <Label>Пол</Label>
+          <div className="grid grid-cols-2 gap-3">
+            {SEX_OPTIONS.map((option) => (
+              <OptionCard
+                key={option.value}
+                active={form.sex === option.value}
+                title={option.label}
+                onClick={() => setField("sex", option.value)}
+                size="sm"
+              />
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Опыт тренировок</CardTitle>
+          <span className="text-xs text-muted">Влияет на объём, прогрессию и сложность упражнений</span>
+        </CardHeader>
+        <div className="grid md:grid-cols-3 gap-3">
+          {EXPERIENCE_OPTIONS.map((option) => (
+            <OptionCard
+              key={option.value}
+              active={form.experience === option.value}
+              title={option.label}
+              description={option.description}
+              icon={<Activity size={18} />}
+              onClick={() => setField("experience", option.value)}
+            />
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Цель тренировок</CardTitle>
+          <span className="text-xs text-muted">Определяет диапазон повторений, отдых и интенсивность</span>
+        </CardHeader>
+        <div className="grid md:grid-cols-2 gap-3">
+          {GOAL_OPTIONS.map((option) => (
+            <OptionCard
+              key={option.value}
+              active={form.goal === option.value}
+              title={`${option.icon} ${option.label}`}
+              description={option.description}
+              onClick={() => setField("goal", option.value)}
+            />
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ограничения по здоровью</CardTitle>
+          <span className="text-xs text-muted">Эти зоны будут учитываться во всех будущих программах</span>
+        </CardHeader>
+        <div className="flex flex-wrap gap-2">
+          {RESTRICTION_OPTIONS.map((restriction) => (
+            <Chip
+              key={restriction.value}
+              tone="danger"
+              active={form.global_restrictions.includes(restriction.value)}
+              onClick={() => toggleRestriction(restriction.value)}
+            >
+              {restriction.label}
+            </Chip>
+          ))}
+        </div>
+        <p className="text-xs text-muted mt-2">
+          Упражнения с риском для отмеченных зон будут заменены на безопасные альтернативы.
+        </p>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Приоритетные упражнения</CardTitle>
+          <Badge>{form.priority_exercise_ids.length} / 24</Badge>
+        </CardHeader>
+        <p className="text-sm text-muted -mt-2">
+          Выбранные упражнения будут вставляться в программу в первую очередь, если безопасны и соответствуют структуре.
+        </p>
+        <div className="mt-3">
+          <Input
+            placeholder="Поиск по названию…"
+            value={exerciseQuery}
+            onChange={(e) => setExerciseQuery(e.target.value)}
+          />
+        </div>
+        {exercises.length === 0 ? (
+          <div className="text-sm text-muted text-center py-6">Загрузка упражнений…</div>
+        ) : (
+          <div className="mt-3 max-h-[320px] overflow-y-auto pr-1 grid sm:grid-cols-2 gap-2">
+            {filteredExercises.map((ex) => {
+              const active = form.priority_exercise_ids.includes(ex.id);
+              return (
+                <Chip
+                  key={ex.id}
+                  tone="violet"
+                  active={active}
+                  onClick={() => togglePriorityExercise(ex.id)}
+                  className="justify-start truncate text-left"
+                >
+                  <span className="truncate">{ex.name_ru || ex.name}</span>
+                </Chip>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Личные рекорды</CardTitle>
           <div className="text-xs text-muted">Все группы</div>
         </CardHeader>
         <PersonalRecords records={PERSONAL_RECORDS} />
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Редактировать профиль</CardTitle>
-          <Button
-            size="sm"
-            variant={editing ? "outline" : "primary"}
-            onClick={() => setEditing((v) => !v)}
-          >
-            <Edit3 size={14} /> {editing ? "Отмена" : "Редактировать"}
+      <div className="sticky bottom-3 z-10">
+        <div className="glass-card-strong p-3 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[180px] text-sm">
+            {error ? (
+              <span className="text-red-400">{error}</span>
+            ) : savedAt ? (
+              <span className="text-emerald-400">
+                Сохранено в {savedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            ) : (
+              <span className="text-muted">Изменения применятся к будущим программам</span>
+            )}
+          </div>
+          <Button onClick={save} disabled={saving}>
+            <Save size={14} /> {saving ? "Сохранение…" : "Сохранить профиль"}
           </Button>
-        </CardHeader>
-        <fieldset disabled={!editing} className="grid md:grid-cols-2 gap-4 disabled:opacity-70">
-          <div>
-            <Label>Имя</Label>
-            <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-          </div>
-          <div>
-            <Label>Пол</Label>
-            <Select value={form.sex} onChange={(e) => setForm({ ...form, sex: e.target.value as never })}>
-              <option value="">—</option>
-              <option value="male">Мужской</option>
-              <option value="female">Женский</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Рост (см)</Label>
-            <Input type="number" value={form.height_cm} onChange={(e) => setForm({ ...form, height_cm: +e.target.value })} />
-          </div>
-          <div>
-            <Label>Вес (кг)</Label>
-            <Input type="number" value={form.weight_kg} onChange={(e) => setForm({ ...form, weight_kg: +e.target.value })} />
-          </div>
-          <div>
-            <Label>Опыт</Label>
-            <Select value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value as never })}>
-              <option value="beginner">Новичок</option>
-              <option value="intermediate">Средний</option>
-              <option value="advanced">Продвинутый</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Цель</Label>
-            <Select value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value as never })}>
-              <option value="muscle_gain">Набор массы</option>
-              <option value="fat_loss">Жиросжигание</option>
-              <option value="strength">Сила</option>
-              <option value="endurance">Выносливость</option>
-              <option value="general">Общее</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Коэфф. активности</Label>
-            <Input
-              type="number"
-              step={0.05}
-              value={form.activity_factor}
-              onChange={(e) => setForm({ ...form, activity_factor: +e.target.value })}
-            />
-          </div>
-        </fieldset>
-        {editing && (
-          <div className="mt-5 flex gap-2">
-            <Button onClick={save} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>
-            <Button variant="outline" onClick={() => setEditing(false)}>Отмена</Button>
-          </div>
-        )}
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

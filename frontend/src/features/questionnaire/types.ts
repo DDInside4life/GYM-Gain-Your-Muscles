@@ -1,4 +1,12 @@
-import type { Equipment, Experience, Goal, WorkoutPlan } from "@/features/workout/types";
+import type {
+  Equipment,
+  Experience,
+  Goal,
+  Periodization,
+  SessionDurationMin,
+  TrainingStructure,
+  WorkoutPlan,
+} from "@/features/workout/types";
 
 export type Sex = "male" | "female";
 export type TrainingLocation = "gym" | "home";
@@ -17,6 +25,11 @@ export type QuestionnaireInput = {
   days_per_week: number;
   available_days: WeekDay[];
   notes?: string;
+  session_duration_min?: SessionDurationMin | null;
+  training_structure?: TrainingStructure | null;
+  periodization?: Periodization | null;
+  cycle_length_weeks?: number | null;
+  priority_exercise_ids?: number[];
 };
 
 export type Questionnaire = QuestionnaireInput & {
@@ -26,6 +39,11 @@ export type Questionnaire = QuestionnaireInput & {
   plan_id: number | null;
   created_at: string;
   updated_at: string;
+  priority_exercise_ids: number[];
+  session_duration_min: SessionDurationMin | null;
+  training_structure: TrainingStructure | null;
+  periodization: Periodization | null;
+  cycle_length_weeks: number | null;
 };
 
 export type QuestionnaireGenerateResponse = WorkoutPlan;

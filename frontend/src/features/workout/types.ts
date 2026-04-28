@@ -91,6 +91,10 @@ export type WorkoutResultInput = {
   weight_kg: number;
 };
 
+export type TrainingStructure = "full_body" | "half_split" | "upper_lower" | "split";
+export type Periodization = "dup" | "block" | "linear" | "emergent";
+export type SessionDurationMin = 45 | 60 | 90 | 120 | 150;
+
 export type GenerateInput = {
   weight_kg: number;
   height_cm: number;
@@ -100,6 +104,11 @@ export type GenerateInput = {
   equipment: Equipment[];
   injuries: string[];
   days_per_week: number;
+  session_duration_min?: SessionDurationMin | null;
+  training_structure?: TrainingStructure | null;
+  periodization?: Periodization | null;
+  cycle_length_weeks?: number | null;
+  priority_exercise_ids?: number[];
 };
 
 export type Difficulty = "very_easy" | "easy" | "ok" | "hard" | "very_hard";

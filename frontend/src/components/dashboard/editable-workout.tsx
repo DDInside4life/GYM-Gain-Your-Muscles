@@ -13,6 +13,19 @@ type Props = {
   onChanged: (plan: WorkoutPlan) => void;
 };
 
+function toClampedInt(raw: string, min: number, max: number, fallback: number): number {
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function toClampedFloat(raw: string, min: number, max: number): number | null {
+  if (raw === "") return null;
+  const parsed = Number.parseFloat(raw);
+  if (Number.isNaN(parsed)) return null;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 export function EditableWorkout({ plan, onChanged }: Props) {
   const [editingDay, setEditingDay] = useState<WorkoutDay | null>(null);
   const [saving, setSaving] = useState(false);
@@ -99,7 +112,7 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], sets: Number(e.target.value) };
+                        copy[idx] = { ...copy[idx], sets: toClampedInt(e.target.value, 1, 8, copy[idx].sets) };
                         return { ...d, exercises: copy };
                       })}
                     />
@@ -111,7 +124,9 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], reps_min: Number(e.target.value) };
+                        const next = toClampedInt(e.target.value, 1, 30, copy[idx].reps_min);
+                        const repsMax = Math.max(next, copy[idx].reps_max);
+                        copy[idx] = { ...copy[idx], reps_min: next, reps_max: repsMax };
                         return { ...d, exercises: copy };
                       })}
                     />
@@ -123,7 +138,8 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], reps_max: Number(e.target.value) };
+                        const next = toClampedInt(e.target.value, copy[idx].reps_min, 30, copy[idx].reps_max);
+                        copy[idx] = { ...copy[idx], reps_max: next };
                         return { ...d, exercises: copy };
                       })}
                     />
@@ -131,11 +147,12 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                   <div>
                     <Label>Вес, кг</Label>
                     <Input
-                      type="number" min={0} value={ex.weight_kg ?? 0}
+                      type="number" min={0} max={700} step={0.5}
+                      value={ex.weight_kg ?? ""}
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], weight_kg: Number(e.target.value) || null };
+                        copy[idx] = { ...copy[idx], weight_kg: toClampedFloat(e.target.value, 0, 700) };
                         return { ...d, exercises: copy };
                       })}
                     />
@@ -147,7 +164,7 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], rest_sec: Number(e.target.value) };
+                        copy[idx] = { ...copy[idx], rest_sec: toClampedInt(e.target.value, 20, 600, copy[idx].rest_sec) };
                         return { ...d, exercises: copy };
                       })}
                     />
@@ -160,7 +177,7 @@ export function EditableWorkout({ plan, onChanged }: Props) {
                       onChange={(e) => setEditingDay((d) => {
                         if (!d) return d;
                         const copy = [...d.exercises];
-                        copy[idx] = { ...copy[idx], target_rir: Number(e.target.value) };
+                        copy[idx] = { ...copy[idx], target_rir: toClampedFloat(e.target.value, 0, 10) };
                         return { ...d, exercises: copy };
                       })}
                     />

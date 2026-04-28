@@ -13,7 +13,9 @@ import type { WorkoutPlan, WorkoutTemplate } from "@/features/workout/types";
 
 const SPLIT_LABEL: Record<string, string> = {
   full_body: "Фулл-боди",
+  half_split: "Полусплит",
   upper_lower: "Верх/Низ",
+  split: "Сплит",
   ppl: "Тяни/Толкай/Ноги",
 };
 
