@@ -14,15 +14,21 @@ export type CalculatorFormState = {
   goal: NutritionCalculatorGoal;
 };
 
-type CalorieCardProps = { title: string; value: number; tone: "base" | "cut" | "bulk" };
+type CalorieCardProps = { title: string; value: number; tone: "base" | "cut" | "bulk"; suffix?: string };
 
-function CalorieCard({ title, value, tone }: CalorieCardProps) {
+function CalorieCard({ title, value, tone, suffix = "ккал" }: CalorieCardProps) {
   const toneClass =
-    tone === "cut" ? "text-red-400" : tone === "bulk" ? "text-emerald-400" : "text-violet-300";
+    tone === "cut"
+      ? "text-red-500 dark:text-red-400"
+      : tone === "bulk"
+        ? "text-emerald-500 dark:text-emerald-400"
+        : "text-violet-500 dark:text-violet-300";
   return (
-    <div className="rounded-xl border border-[var(--border)] p-3">
+    <div className="rounded-xl border border-[var(--border)] bg-white/40 dark:bg-white/[0.03] p-3">
       <p className="text-xs text-muted">{title}</p>
-      <p className={`text-xl font-semibold ${toneClass}`}>{value} kcal</p>
+      <p className={`display text-xl font-extrabold mt-1 ${toneClass}`}>
+        {value} <span className="text-xs font-medium opacity-70">{suffix}</span>
+      </p>
     </div>
   );
 }
@@ -46,6 +52,7 @@ export function CalorieCalculatorCard({ form, targets, loading, error, onChange 
     <Card>
       <CardHeader>
         <CardTitle>Калькулятор калорий и БЖУ</CardTitle>
+        <span className="text-xs text-muted">{loading ? "Пересчёт…" : "Авто-расчёт"}</span>
       </CardHeader>
       <div className="grid gap-3 md:grid-cols-5">
         <div>
@@ -92,7 +99,7 @@ export function CalorieCalculatorCard({ form, targets, loading, error, onChange 
             onChange={(e) => onChange({ ...form, activity: e.target.value as NutritionCalculatorActivity })}
           >
             <option value="sedentary">Сидячий (1.2)</option>
-            <option value="light">Легкая (1.375)</option>
+            <option value="light">Лёгкая (1.375)</option>
             <option value="moderate">Умеренная (1.55)</option>
             <option value="active">Высокая (1.725)</option>
             <option value="very_active">Очень высокая (1.9)</option>
@@ -116,14 +123,12 @@ export function CalorieCalculatorCard({ form, targets, loading, error, onChange 
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <CalorieCard title={`Белки: ${Math.round(targets?.protein.grams ?? 0)} г`} value={Math.round(targets?.protein.kcal ?? 0)} tone="base" />
-        <CalorieCard title={`Жиры: ${Math.round(targets?.fat.grams ?? 0)} г`} value={Math.round(targets?.fat.kcal ?? 0)} tone="base" />
-        <CalorieCard title={`Углеводы: ${Math.round(targets?.carbs.grams ?? 0)} г`} value={Math.round(targets?.carbs.kcal ?? 0)} tone="base" />
+        <CalorieCard title={`Белки · ${Math.round(targets?.protein.grams ?? 0)} г`} value={Math.round(targets?.protein.kcal ?? 0)} tone="base" />
+        <CalorieCard title={`Жиры · ${Math.round(targets?.fat.grams ?? 0)} г`} value={Math.round(targets?.fat.kcal ?? 0)} tone="base" />
+        <CalorieCard title={`Углеводы · ${Math.round(targets?.carbs.grams ?? 0)} г`} value={Math.round(targets?.carbs.kcal ?? 0)} tone="base" />
       </div>
 
-      <div className="mt-3 text-xs text-muted">
-        {loading ? "Пересчет целей..." : error ? error : "Расчет выполняется на сервере."}
-      </div>
+      {error && <div className="mt-3 text-xs text-red-400">{error}</div>}
     </Card>
   );
 }

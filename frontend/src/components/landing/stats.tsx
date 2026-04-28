@@ -13,13 +13,13 @@ export function Stats() {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
       {items.map((it) => (
-        <div key={it.label} className="glass-card p-4 flex items-center gap-4">
-          <div className="h-10 w-10 grid place-items-center rounded-xl bg-brand-gradient text-white">
+        <div key={it.label} className="glass-card p-4 flex items-center gap-4 hover-lift">
+          <div className="h-10 w-10 grid place-items-center rounded-xl bg-brand-gradient dark:bg-neon-gradient text-white shadow-glow-brand dark:shadow-glow">
             {it.icon}
           </div>
           <div>
-            <div className="display font-extrabold text-xl">{it.value}</div>
-            <div className="text-xs text-muted">{it.label}</div>
+            <div className="display font-extrabold text-xl leading-none">{it.value}</div>
+            <div className="text-xs text-muted mt-1">{it.label}</div>
           </div>
         </div>
       ))}

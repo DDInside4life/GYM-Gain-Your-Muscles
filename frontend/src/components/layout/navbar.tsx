@@ -12,7 +12,7 @@ const links = [
   { href: "/", label: "Главная" },
   { href: "/dashboard", label: "Профиль" },
   { href: "/dashboard/workouts", label: "Тренировки" },
-  { href: "/blog", label: "Блог" },
+  { href: "/blog", label: "Блог (исследования)" },
   { href: "/dashboard/nutrition", label: "Питание" },
   { href: "/faq", label: "FAQ" },
 ];
@@ -26,11 +26,14 @@ export function Navbar() {
   return (
     <header className="sticky top-4 z-50 px-4">
       <nav className="glass-card mx-auto max-w-6xl flex items-center gap-2 px-4 py-2.5">
-        <Link href="/" className="flex items-center gap-2 pr-2">
-          <div className="h-8 w-8 rounded-lg bg-brand-gradient grid place-items-center">
+        <Link href="/" className="flex items-center gap-2.5 pr-2">
+          <div className="relative h-9 w-9 rounded-xl bg-brand-gradient dark:bg-neon-gradient grid place-items-center shadow-glow-brand dark:shadow-glow">
             <Dumbbell size={16} className="text-white" />
           </div>
-          <span className="display font-extrabold text-lg">GYM</span>
+          <div className="leading-none">
+            <div className="display font-extrabold text-lg tracking-tight">GYM</div>
+            <div className="text-[9px] uppercase tracking-[0.18em] text-muted -mt-0.5">Gain Your Muscles</div>
+          </div>
         </Link>
 
         <ul className="hidden md:flex items-center gap-1 ml-2">
@@ -41,13 +44,16 @@ export function Navbar() {
                 <Link
                   href={l.href}
                   className={cn(
-                    "px-3 py-1.5 text-sm rounded-lg transition",
+                    "relative px-3 py-1.5 text-sm rounded-lg transition",
                     active
-                      ? "text-brand-500 dark:text-violet-400"
+                      ? "text-brand-500 dark:text-violet-300 font-semibold"
                       : "text-muted hover:text-inherit hover:bg-black/5 dark:hover:bg-white/5",
                   )}
                 >
                   {l.label}
+                  {active && (
+                    <span className="absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-brand-gradient dark:bg-neon-gradient" />
+                  )}
                 </Link>
               </li>
             );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Salad } from "lucide-react";
+import { Plus, Salad, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -189,30 +189,31 @@ export default function NutritionPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-up">
       <Card>
         <CardHeader>
-          <CardTitle>Питание</CardTitle>
-          <Salad className="text-emerald-500" />
+          <div className="flex items-center gap-2">
+            <Salad className="text-emerald-500" size={20} />
+            <CardTitle>Сегодня</CardTitle>
+          </div>
+          <Input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="max-w-[180px]"
+          />
         </CardHeader>
-        <div className="grid md:grid-cols-[220px_1fr_auto] gap-3 items-end">
-          <div>
-            <Label>Дата</Label>
-            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>Прием пищи</Label>
-            <Input
-              value={mealName}
-              onChange={(e) => setMealName(e.target.value)}
-              placeholder="Завтрак / Обед / Ужин / Перекус"
-            />
-          </div>
-          <Button onClick={createMeal} disabled={creatingMeal || !mealName.trim()} variant="glass">
-            <Plus size={16} /> {creatingMeal ? "Создаем..." : "Добавить прием пищи"}
-          </Button>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {[
+            { label: "Калории", value: summary?.calories ?? 0, max: targets?.target_calories ?? 4000, color: "#ff4533", unit: "ккал", showPercent: true },
+            { label: "Белки", value: summary?.protein ?? 0, max: targets?.protein.grams ?? 300, color: "#a855f7", unit: "г" },
+            { label: "Жиры", value: summary?.fat ?? 0, max: targets?.fat.grams ?? 200, color: "#ff8a7c", unit: "г" },
+            { label: "Углеводы", value: summary?.carbs ?? 0, max: targets?.carbs.grams ?? 500, color: "#c084fc", unit: "г" },
+          ].map((it) => (
+            <MacroRing key={it.label} {...it} />
+          ))}
         </div>
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
       </Card>
 
       <CalorieCalculatorCard
@@ -224,25 +225,38 @@ export default function NutritionPage() {
       />
 
       <Card>
-        <CardHeader><CardTitle>Сводка за день</CardTitle></CardHeader>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 justify-items-center py-2">
-          {[
-            { label: "Калории", value: summary?.calories ?? 0, max: targets?.target_calories ?? 4000, color: "#ff4533", unit: "ккал" },
-            { label: "Белки", value: summary?.protein ?? 0, max: targets?.protein.grams ?? 300, color: "#8b5cf6", unit: "г" },
-            { label: "Жиры", value: summary?.fat ?? 0, max: targets?.fat.grams ?? 200, color: "#ff5f4c", unit: "г" },
-            { label: "Углеводы", value: summary?.carbs ?? 0, max: targets?.carbs.grams ?? 500, color: "#a78bfa", unit: "г" },
-          ].map((it) => (
-            <MacroRing key={it.label} {...it} />
-          ))}
-        </div>
-      </Card>
+        <CardHeader>
+          <CardTitle>Приёмы пищи</CardTitle>
+          <div className="text-xs text-muted">{meals.length} {meals.length === 1 ? "приём" : "приёма"}</div>
+        </CardHeader>
 
-      <Card>
-        <CardHeader><CardTitle>Приемы пищи</CardTitle></CardHeader>
+        <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end mb-4">
+          <div>
+            <Label>Название приёма пищи</Label>
+            <Input
+              value={mealName}
+              onChange={(e) => setMealName(e.target.value)}
+              placeholder="Завтрак / Обед / Ужин / Перекус"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={createMeal} disabled={creatingMeal || !mealName.trim()}>
+              <Plus size={16} /> {creatingMeal ? "Создаём…" : "Добавить приём"}
+            </Button>
+            <Button variant="outline">
+              <Sparkles size={16} /> Сгенерировать план
+            </Button>
+          </div>
+        </div>
+
+        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+
         {loading ? (
-          <p className="text-sm text-muted">Загрузка приемов пищи...</p>
+          <p className="text-sm text-muted">Загрузка приёмов пищи…</p>
         ) : meals.length === 0 ? (
-          <p className="text-sm text-muted">На эту дату приемов пищи нет.</p>
+          <div className="glass-card p-10 text-center text-muted text-sm">
+            На эту дату приёмов пищи нет. Добавьте первый приём.
+          </div>
         ) : (
           <div className="space-y-3">
             {meals.map((meal) => (
@@ -273,44 +287,53 @@ function MacroRing({
   label,
   color,
   unit,
+  showPercent = false,
 }: {
   value: number;
   max: number;
   label: string;
   color: string;
   unit: string;
+  showPercent?: boolean;
 }) {
-  const r = 38;
+  const r = 42;
   const circ = 2 * Math.PI * r;
   const safeMax = max > 0 ? max : 1;
   const progress = Math.min(value / safeMax, 1);
   const offset = circ * (1 - progress);
   const percent = Math.round((value / safeMax) * 100);
+  const displayValue = Math.round(value);
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="glass-card p-4 flex flex-col items-center gap-2 hover-lift">
+      <div className="text-xs font-semibold text-muted uppercase tracking-wider">{label}</div>
       <div className="relative">
-        <svg width="96" height="96" viewBox="0 0 96 96">
-          <circle cx="48" cy="48" r={r} fill="none" stroke="rgba(128,128,128,0.12)" strokeWidth="7" />
+        <svg width="112" height="112" viewBox="0 0 112 112">
+          <circle cx="56" cy="56" r={r} fill="none" stroke="rgba(128,128,128,0.14)" strokeWidth="8" />
           <circle
-            cx="48" cy="48" r={r}
+            cx="56"
+            cy="56"
+            r={r}
             fill="none"
             stroke={color}
-            strokeWidth="7"
+            strokeWidth="8"
             strokeDasharray={circ}
             strokeDashoffset={offset}
             strokeLinecap="round"
-            transform="rotate(-90 48 48)"
+            transform="rotate(-90 56 56)"
+            style={{ filter: `drop-shadow(0 0 6px ${color}80)` }}
           />
-          <text x="48" y="44" textAnchor="middle" fontSize="15" fontWeight="bold" fill="currentColor">
-            {value}
+          <text x="56" y="52" textAnchor="middle" fontSize="20" fontWeight="800" fill="currentColor" className="display">
+            {displayValue}
           </text>
-          <text x="48" y="60" textAnchor="middle" fontSize="10" fill="var(--muted)">
+          <text x="56" y="70" textAnchor="middle" fontSize="11" fill="var(--muted)">
             {unit}
           </text>
         </svg>
       </div>
-      <span className="text-xs text-muted font-medium">{label} ({percent}%)</span>
+      {showPercent && (
+        <span className="text-xs text-muted font-semibold">{percent}%</span>
+      )}
     </div>
   );
 }

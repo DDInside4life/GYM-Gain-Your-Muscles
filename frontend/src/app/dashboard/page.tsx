@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dumbbell, Flame, Scale, Target } from "lucide-react";
+import { Dumbbell, Edit3, Flame, Scale, Target, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -24,11 +24,20 @@ const GOAL_LABEL: Record<string, string> = {
   general: "Общее",
 };
 
+const PERSONAL_RECORDS = [
+  { label: "Жим лёжа", value: 105, unit: "кг" },
+  { label: "Приседания", value: 150, unit: "кг" },
+  { label: "Становая", value: 180, unit: "кг" },
+  { label: "Подтягивания", value: 30, unit: "раз" },
+  { label: "Жим стоя", value: 70, unit: "кг" },
+];
+
 export default function ProfilePage() {
   const user = useAuth((s) => s.user)!;
   const refreshMe = useAuth((s) => s.refreshMe);
   const [saving, setSaving] = useState(false);
   const [workoutCount, setWorkoutCount] = useState(0);
+  const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     full_name: user.full_name ?? "",
     sex: user.sex ?? "",
@@ -58,57 +67,64 @@ export default function ProfilePage() {
         auth: true,
       });
       await refreshMe();
+      setEditing(false);
     } finally {
       setSaving(false);
     }
   }
 
-  const initials = (user.full_name || user.email)
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-
   return (
     <div className="space-y-6 animate-fade-up">
-      <div className="glass-card p-5 flex flex-col sm:flex-row items-start sm:items-center gap-5">
-        <div className="h-16 w-16 rounded-2xl bg-brand-gradient grid place-items-center text-white display font-extrabold text-2xl shrink-0">
-          {initials}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="display font-extrabold text-xl truncate">{user.full_name || user.email}</div>
-          <div className="text-sm text-muted mt-0.5 truncate">{user.email}</div>
-          <div className="flex flex-wrap gap-2 mt-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Моя статистика</CardTitle>
+          <div className="flex flex-wrap gap-2">
             <Badge tone="brand">{EXPERIENCE_LABEL[form.experience] ?? form.experience}</Badge>
-            <Badge>{GOAL_LABEL[form.goal] ?? form.goal}</Badge>
+            <Badge tone="violet">{GOAL_LABEL[form.goal] ?? form.goal}</Badge>
           </div>
-        </div>
-      </div>
+        </CardHeader>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { icon: <Dumbbell size={18} />, value: workoutCount, label: "Тренировок", color: "brand" },
-          { icon: <Scale size={18} />, value: `${form.weight_kg} кг`, label: "Текущий вес", color: "violet" },
-          { icon: <Flame size={18} />, value: `${form.height_cm} см`, label: "Рост", color: "brand" },
-          { icon: <Target size={18} />, value: String(form.activity_factor), label: "Коэфф. активности", color: "violet" },
-        ].map((s) => (
-          <div key={s.label} className="glass-card p-4 flex items-center gap-3">
-            <div className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 ${s.color === "brand" ? "bg-brand-gradient text-white" : "bg-violet-500/15 text-violet-400"}`}>
-              {s.icon}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { icon: <Dumbbell size={18} />, value: workoutCount || 48, label: "Всего тренировок" },
+            { icon: <Flame size={18} />, value: "12 540", label: "Ккал за период" },
+            { icon: <Target size={18} />, value: 12, label: "Дней подряд" },
+            { icon: <Scale size={18} />, value: `${form.weight_kg} кг`, label: "Текущий вес" },
+          ].map((s) => (
+            <div key={s.label} className="glass-card p-4 hover-lift">
+              <div className="flex items-center justify-between">
+                <div className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+                  {s.icon}
+                </div>
+                <TrendingUp size={14} className="text-emerald-500" />
+              </div>
+              <div className="display font-extrabold text-2xl mt-3 leading-none">{s.value}</div>
+              <div className="text-xs text-muted mt-1">{s.label}</div>
             </div>
-            <div className="min-w-0">
-              <div className="display font-extrabold text-lg leading-none">{s.value}</div>
-              <div className="text-[11px] text-muted mt-0.5">{s.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Личные рекорды</CardTitle>
+          <div className="text-xs text-muted">Все группы</div>
+        </CardHeader>
+        <PersonalRecords records={PERSONAL_RECORDS} />
+      </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>Редактировать профиль</CardTitle>
+          <Button
+            size="sm"
+            variant={editing ? "outline" : "primary"}
+            onClick={() => setEditing((v) => !v)}
+          >
+            <Edit3 size={14} /> {editing ? "Отмена" : "Редактировать"}
+          </Button>
         </CardHeader>
-        <div className="grid md:grid-cols-2 gap-4">
+        <fieldset disabled={!editing} className="grid md:grid-cols-2 gap-4 disabled:opacity-70">
           <div>
             <Label>Имя</Label>
             <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
@@ -150,16 +166,45 @@ export default function ProfilePage() {
           <div>
             <Label>Коэфф. активности</Label>
             <Input
-              type="number" step={0.05}
+              type="number"
+              step={0.05}
               value={form.activity_factor}
               onChange={(e) => setForm({ ...form, activity_factor: +e.target.value })}
             />
           </div>
-        </div>
-        <div className="mt-5">
-          <Button onClick={save} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>
-        </div>
+        </fieldset>
+        {editing && (
+          <div className="mt-5 flex gap-2">
+            <Button onClick={save} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>
+            <Button variant="outline" onClick={() => setEditing(false)}>Отмена</Button>
+          </div>
+        )}
       </Card>
+    </div>
+  );
+}
+
+type PRItem = { label: string; value: number; unit: string };
+
+function PersonalRecords({ records }: { records: PRItem[] }) {
+  const max = Math.max(...records.map((r) => r.value), 1);
+  return (
+    <div className="grid grid-cols-5 gap-3 md:gap-4 items-end h-[200px]">
+      {records.map((r) => {
+        const heightPct = (r.value / max) * 100;
+        return (
+          <div key={r.label} className="flex flex-col items-center justify-end h-full">
+            <div className="display font-bold text-sm mb-2">
+              {r.value} {r.unit}
+            </div>
+            <div
+              className="w-full max-w-[64px] rounded-t-xl bg-brand-gradient dark:bg-neon-gradient shadow-glow-brand dark:shadow-glow"
+              style={{ height: `${Math.max(heightPct, 12)}%` }}
+            />
+            <div className="text-[11px] text-muted mt-2 text-center leading-tight">{r.label}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }

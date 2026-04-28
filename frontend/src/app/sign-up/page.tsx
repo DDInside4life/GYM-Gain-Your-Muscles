@@ -54,7 +54,7 @@ export default function SignUpPage() {
           </Button>
         </form>
         <p className="text-sm text-muted text-center">
-          Уже есть аккаунт? <Link href="/sign-in" className="text-brand-500">Войти</Link>
+          Уже есть аккаунт? <Link href="/sign-in" className="text-brand-500 dark:text-violet-300 hover:underline">Войти</Link>
         </p>
       </div>
     </div>

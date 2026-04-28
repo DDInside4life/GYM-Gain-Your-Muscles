@@ -3,7 +3,7 @@
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-type Variant = "primary" | "ghost" | "outline" | "glass";
+type Variant = "primary" | "ghost" | "outline" | "glass" | "soft";
 type Size = "sm" | "md" | "lg";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -13,13 +13,15 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-brand-gradient text-white shadow-glow hover:opacity-95 active:opacity-90",
+    "text-white bg-brand-gradient dark:bg-neon-gradient shadow-glow-brand dark:shadow-glow hover:opacity-95 active:opacity-90",
   ghost:
     "bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-inherit",
   outline:
-    "bg-transparent border border-[var(--border)] hover:bg-black/5 dark:hover:bg-white/5",
+    "bg-transparent border border-[var(--border-strong)] hover:bg-black/5 dark:hover:bg-white/5",
   glass:
     "glass-card hover:bg-white/80 dark:hover:bg-white/10",
+  soft:
+    "bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300 hover:bg-brand-500/15 dark:hover:bg-violet-500/25",
 };
 
 const sizes: Record<Size, string> = {

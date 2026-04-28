@@ -49,7 +49,7 @@ export default function SignInPage() {
           </Button>
         </form>
         <p className="text-sm text-muted text-center">
-          Нет аккаунта? <Link href="/sign-up" className="text-brand-500">Регистрация</Link>
+          Нет аккаунта? <Link href="/sign-up" className="text-brand-500 dark:text-violet-300 hover:underline">Регистрация</Link>
         </p>
       </div>
     </div>
