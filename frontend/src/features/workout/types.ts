@@ -41,6 +41,11 @@ export type WorkoutExercise = {
   target_rir?: number | null;
   rpe_text?: string;
   superset_group?: number | null;
+  explainability?: {
+    reason: string;
+    target_percent_1rm: number | null;
+    based_on_e1rm: number | null;
+  } | null;
   exercise: Exercise;
 };
 

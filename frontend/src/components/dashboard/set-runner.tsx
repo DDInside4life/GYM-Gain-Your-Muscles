@@ -46,6 +46,20 @@ export function SetRunner({ exercise, onLogged }: Props) {
       {!!exercise.test_instruction && (
         <div className="text-xs text-brand-500">{exercise.test_instruction}</div>
       )}
+      {!!exercise.explainability && (
+        <details className="text-xs rounded-md border border-border/60 bg-muted/20 px-2 py-1">
+          <summary className="cursor-pointer select-none text-muted-foreground">Почему такой вес?</summary>
+          <div className="mt-1 space-y-1 text-muted-foreground">
+            <div>{exercise.explainability.reason}</div>
+            {exercise.explainability.target_percent_1rm != null && (
+              <div>Цель: {(exercise.explainability.target_percent_1rm * 100).toFixed(0)}% от 1RM</div>
+            )}
+            {exercise.explainability.based_on_e1rm != null && (
+              <div>База расчёта e1RM: {exercise.explainability.based_on_e1rm.toFixed(1)} кг</div>
+            )}
+          </div>
+        </details>
+      )}
       <div className="grid grid-cols-4 gap-2">
         <div>
           <Label>Сет</Label>

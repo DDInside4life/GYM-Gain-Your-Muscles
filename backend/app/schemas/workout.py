@@ -14,6 +14,35 @@ Periodization = Literal["dup", "block", "linear", "emergent"]
 ALLOWED_DURATIONS: tuple[int, ...] = (45, 60, 90, 120, 150)
 
 
+class WorkoutExplainabilityRead(BaseModel):
+    reason: str
+    target_percent_1rm: float | None
+    based_on_e1rm: float | None
+
+
+def build_workout_explainability(
+    *,
+    is_test_set: bool,
+    weight_kg: float | None,
+    target_percent_1rm: float | None,
+) -> WorkoutExplainabilityRead | None:
+    if target_percent_1rm is None and weight_kg is None:
+        return None
+    based_on_e1rm: float | None = None
+    if target_percent_1rm and target_percent_1rm > 0 and weight_kg is not None:
+        based_on_e1rm = round(weight_kg / target_percent_1rm, 2)
+    reason = (
+        "Weight is selected by test-week prescription to estimate current strength."
+        if is_test_set
+        else "Weight is selected from target %1RM and your latest estimated 1RM."
+    )
+    return WorkoutExplainabilityRead(
+        reason=reason,
+        target_percent_1rm=target_percent_1rm,
+        based_on_e1rm=based_on_e1rm,
+    )
+
+
 class WorkoutGenerateInput(BaseModel):
     weight_kg: float = Field(gt=20, lt=400)
     height_cm: float = Field(gt=50, lt=260)
@@ -77,6 +106,15 @@ class WorkoutExerciseRead(ORMModel, TimestampMixin):
     @property
     def reps(self) -> str:
         return f"{self.reps_min}-{self.reps_max}" if self.reps_min != self.reps_max else str(self.reps_min)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def explainability(self) -> WorkoutExplainabilityRead | None:
+        return build_workout_explainability(
+            is_test_set=self.is_test_set,
+            weight_kg=self.weight_kg,
+            target_percent_1rm=self.target_percent_1rm,
+        )
 
 
 class WorkoutDayRead(ORMModel, TimestampMixin):
