@@ -14,7 +14,7 @@ from app.models.workout import (
 from app.repositories.workout import SetLogRepository, WorkoutFeedbackRepository, WorkoutPlanRepository
 from app.services.workout.rules import (
     DELOAD_EVERY_WEEKS, DIFFICULTY_INTENSITY_MULT, DIFFICULTY_SETS_DELTA,
-    AutoDeloadDecision, clamp_sets, decide_auto_deload, round_to_plate,
+    AutoDeloadDecision, ComplianceAdjustment, clamp_sets, compliance_adjustment, decide_auto_deload, round_to_plate,
 )
 
 
@@ -46,14 +46,17 @@ class ProgressionService:
         self,
         fb: WorkoutFeedback | None,
         discomfort_tokens: frozenset[str],
+        compliance: ComplianceAdjustment,
     ) -> _DayAdjustment:
         if fb is None:
-            return _DayAdjustment(1.0, 0, discomfort_tokens)
+            return _DayAdjustment(min(1.0, compliance.intensity_cap), compliance.sets_delta, discomfort_tokens)
         mult = DIFFICULTY_INTENSITY_MULT[fb.difficulty]
         sets_delta = DIFFICULTY_SETS_DELTA[fb.difficulty]
         if not fb.completed:
             mult = min(mult, 0.95)
             sets_delta = min(sets_delta, 0)
+        mult = min(mult, compliance.intensity_cap)
+        sets_delta = max(-2, min(1, sets_delta + compliance.sets_delta))
         return _DayAdjustment(mult, sets_delta, discomfort_tokens)
 
     async def advance(self, user: User) -> WorkoutPlan:
@@ -71,6 +74,8 @@ class ProgressionService:
         for fb in feedback:
             discomfort.update(d for d in fb.discomfort if isinstance(d, str))
         discomfort_frozen = frozenset(discomfort)
+        compliance_ratio = self._compliance_ratio(feedback)
+        compliance = compliance_adjustment(compliance_ratio)
 
         next_week = current.week_number + 1
         scheduled_deload = self._is_deload_week(next_week)
@@ -89,6 +94,8 @@ class ProgressionService:
                 "progressed_from": current.id,
                 "deload": auto_deload.should_deload,
                 "deload_reasons": list(auto_deload.reasons),
+                "compliance_ratio": compliance_ratio,
+                "compliance_adjustment": compliance.reason,
                 "discomfort": sorted(discomfort_frozen),
             },
         )
@@ -96,7 +103,14 @@ class ProgressionService:
         await self.db.flush()
 
         for old_day in current.days:
-            self._clone_day(new_plan.id, old_day, by_day.get(old_day.id), discomfort_frozen, auto_deload)
+            self._clone_day(
+                new_plan.id,
+                old_day,
+                by_day.get(old_day.id),
+                discomfort_frozen,
+                auto_deload,
+                compliance,
+            )
 
         await self.db.commit()
         fresh = await self.plans.get_with_days(new_plan.id)
@@ -110,6 +124,7 @@ class ProgressionService:
         fb: WorkoutFeedback | None,
         discomfort: frozenset[str],
         deload: AutoDeloadDecision,
+        compliance: ComplianceAdjustment,
     ) -> None:
         new_day = WorkoutDay(
             plan_id=new_plan_id,
@@ -123,11 +138,11 @@ class ProgressionService:
         if old_day.is_rest:
             return
 
-        adj = self._compute_adjustment(fb, discomfort)
+        adj = self._compute_adjustment(fb, discomfort, compliance)
         if deload.should_deload:
             adj = _DayAdjustment(
                 intensity_mult=deload.intensity_mult,
-                sets_delta=deload.sets_delta,
+                sets_delta=max(-2, min(1, deload.sets_delta + compliance.sets_delta)),
                 skip_contras=adj.skip_contras,
             )
 
@@ -204,6 +219,13 @@ class ProgressionService:
             return None
         drop_ratio = max(0.0, (early_avg - recent_avg) / early_avg)
         return round(drop_ratio, 4)
+
+    @staticmethod
+    def _compliance_ratio(rows: list[WorkoutFeedback]) -> float | None:
+        if not rows:
+            return None
+        completed = sum(1 for row in rows if row.completed)
+        return completed / len(rows)
 
     async def submit_feedback(
         self,

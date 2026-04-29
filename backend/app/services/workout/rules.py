@@ -138,3 +138,20 @@ def decide_auto_deload(
         sets_delta=-1,
         reasons=tuple(reasons) if reasons else ("scheduled_deload",),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ComplianceAdjustment:
+    sets_delta: int
+    intensity_cap: float
+    reason: str
+
+
+def compliance_adjustment(compliance_ratio: float | None) -> ComplianceAdjustment:
+    if compliance_ratio is None:
+        return ComplianceAdjustment(sets_delta=0, intensity_cap=1.0, reason="no_data")
+    if compliance_ratio < 0.4:
+        return ComplianceAdjustment(sets_delta=-2, intensity_cap=0.9, reason="very_low_compliance")
+    if compliance_ratio < 0.6:
+        return ComplianceAdjustment(sets_delta=-1, intensity_cap=0.95, reason="low_compliance")
+    return ComplianceAdjustment(sets_delta=0, intensity_cap=1.0, reason="stable_compliance")
