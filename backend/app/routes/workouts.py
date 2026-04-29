@@ -46,6 +46,7 @@ from app.schemas.workout import (
 )
 from app.services.workout import ProgressionService, TemplateProgramService, WorkoutGenerator
 from app.services.workout.auto_weights import AutoWeightCalculator, adjusted_e1rm
+from app.services.atomic import AtomicService
 from app.services.idempotency import IdempotencyService
 
 router = APIRouter()
@@ -73,16 +74,17 @@ def _questionnaire_input_from_row(row: WorkoutQuestionnaire) -> WorkoutQuestionn
     )
 
 
-async def _generate_from_latest_questionnaire(user, db) -> WorkoutPlanRead:
+async def _generate_from_latest_questionnaire(user, db, *, autocommit: bool = True) -> WorkoutPlanRead:
     questionnaire = await WorkoutQuestionnaireRepository(db).latest_for_user(user.id)
     if questionnaire is None:
         raise NotFound("Заполните анкету тренировки перед перегенерацией")
     payload = _questionnaire_input_from_row(questionnaire)
     plan = await WorkoutGenerator(db).generate(
-        user, payload, questionnaire_id=questionnaire.id,
+        user, payload, questionnaire_id=questionnaire.id, autocommit=False,
     )
     questionnaire.plan_id = plan.id
-    await db.commit()
+    if autocommit:
+        await db.commit()
     plan = await WorkoutPlanRepository(db).get_with_days(plan.id) or plan
     return WorkoutPlanRead.model_validate(plan)
 
@@ -153,19 +155,19 @@ async def regenerate_next_month(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> WorkoutPlanRead:
     async def _action() -> tuple[int, dict]:
-        plan = await _generate_from_latest_questionnaire(user, db)
+        plan = await _generate_from_latest_questionnaire(user, db, autocommit=False)
         return status.HTTP_201_CREATED, plan.model_dump()
 
     idempotency = IdempotencyService(IdempotencyRepository(db))
-    result = await idempotency.execute(
-        user_id=user.id,
-        operation="workouts.regenerate",
-        idempotency_key=idempotency_key,
-        request_payload={"user_id": user.id},
-        action=_action,
+    result = await AtomicService(db).run(
+        lambda: idempotency.execute(
+            user_id=user.id,
+            operation="workouts.regenerate",
+            idempotency_key=idempotency_key,
+            request_payload={"user_id": user.id},
+            action=_action,
+        ),
     )
-    if not result.replayed:
-        await db.commit()
     response.status_code = result.status_code
     return WorkoutPlanRead.model_validate(result.body)
 
@@ -241,15 +243,15 @@ async def finalize_test_week(
         return status.HTTP_200_OK, payload
 
     idempotency = IdempotencyService(IdempotencyRepository(db))
-    result = await idempotency.execute(
-        user_id=user.id,
-        operation="workouts.finalize_test_week",
-        idempotency_key=idempotency_key,
-        request_payload={"plan_id": plan_id},
-        action=_action,
+    result = await AtomicService(db).run(
+        lambda: idempotency.execute(
+            user_id=user.id,
+            operation="workouts.finalize_test_week",
+            idempotency_key=idempotency_key,
+            request_payload={"plan_id": plan_id},
+            action=_action,
+        ),
     )
-    if not result.replayed:
-        await db.commit()
     response.status_code = result.status_code
     return FinalizeTestWeekRead.model_validate(result.body)
 
@@ -351,15 +353,15 @@ async def log_set(
         return status.HTTP_201_CREATED, SetLogRead.model_validate(log).model_dump()
 
     idempotency = IdempotencyService(IdempotencyRepository(db))
-    result = await idempotency.execute(
-        user_id=user.id,
-        operation="workouts.log_set",
-        idempotency_key=idempotency_key,
-        request_payload=payload.model_dump(),
-        action=_action,
+    result = await AtomicService(db).run(
+        lambda: idempotency.execute(
+            user_id=user.id,
+            operation="workouts.log_set",
+            idempotency_key=idempotency_key,
+            request_payload=payload.model_dump(),
+            action=_action,
+        ),
     )
-    if not result.replayed:
-        await db.commit()
     response.status_code = result.status_code
     return SetLogRead.model_validate(result.body)
 

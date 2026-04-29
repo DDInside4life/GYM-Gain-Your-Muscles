@@ -244,14 +244,15 @@ class WorkoutGenerator:
         payload: WorkoutGenerateInput | WorkoutQuestionnaireInput,
         *,
         questionnaire_id: int | None = None,
+        autocommit: bool = True,
     ) -> WorkoutPlan:
         if isinstance(payload, WorkoutQuestionnaireInput):
             ctx = context_from_questionnaire(user, payload, questionnaire_id=questionnaire_id)
         else:
             ctx = context_from_legacy(user, payload)
-        return await self.generate_from_context(user, ctx)
+        return await self.generate_from_context(user, ctx, autocommit=autocommit)
 
-    async def generate_from_context(self, user: User, ctx: GenerationContext) -> WorkoutPlan:
+    async def generate_from_context(self, user: User, ctx: GenerationContext, *, autocommit: bool = True) -> WorkoutPlan:
         pool = await self.exercises.list_filtered(active_only=True)
         if not pool:
             raise ValueError("Каталог упражнений пуст: запустите сидер")
@@ -416,7 +417,10 @@ class WorkoutGenerator:
 
         await self._reset_mesocycle(user.id, plan.id, prev)
 
-        await self.db.commit()
+        if autocommit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         fresh = await self.plans.get_with_days(plan.id)
         assert fresh is not None
         return fresh
