@@ -156,7 +156,7 @@ async def regenerate_next_month(
 ) -> WorkoutPlanRead:
     async def _action() -> tuple[int, dict]:
         plan = await _generate_from_latest_questionnaire(user, db, autocommit=False)
-        return status.HTTP_201_CREATED, plan.model_dump()
+        return status.HTTP_201_CREATED, plan.model_dump(mode="json")
 
     idempotency = IdempotencyService(IdempotencyRepository(db))
     result = await AtomicService(db).run(
@@ -350,7 +350,7 @@ async def log_set(
         meso = await meso_repo.for_plan(plan.id)
         if meso is not None and meso.current_week != day.week_index:
             meso.current_week = day.week_index
-        return status.HTTP_201_CREATED, SetLogRead.model_validate(log).model_dump()
+        return status.HTTP_201_CREATED, SetLogRead.model_validate(log).model_dump(mode="json")
 
     idempotency = IdempotencyService(IdempotencyRepository(db))
     result = await AtomicService(db).run(
