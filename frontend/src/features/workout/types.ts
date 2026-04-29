@@ -40,6 +40,7 @@ export type WorkoutExercise = {
   test_instruction?: string;
   target_rir?: number | null;
   rpe_text?: string;
+  superset_group?: number | null;
   exercise: Exercise;
 };
 
@@ -82,6 +83,7 @@ export type WorkoutDayUpdate = {
     test_instruction?: string;
     target_rir?: number | null;
     rpe_text?: string;
+    superset_group?: number | null;
   }>;
 };
 
@@ -109,6 +111,75 @@ export type GenerateInput = {
   periodization?: Periodization | null;
   cycle_length_weeks?: number | null;
   priority_exercise_ids?: number[];
+};
+
+export type TemplateGenerateInput = {
+  goal?: Goal | null;
+  days_per_week?: number | null;
+  training_structure?: TrainingStructure | null;
+  weeks?: number;
+};
+
+export type Sex = "male" | "female";
+
+export type QuestionnaireInput = {
+  sex: Sex;
+  age: number;
+  height_cm: number;
+  weight_kg: number;
+  experience: Experience;
+  goal: Goal;
+  location: "gym" | "home";
+  equipment: Equipment[];
+  injuries: string[];
+  days_per_week: number;
+  available_days: string[];
+  notes: string;
+  session_duration_min: SessionDurationMin;
+  training_structure: TrainingStructure;
+  periodization: Periodization;
+  cycle_length_weeks: number;
+  priority_exercise_ids: number[];
+};
+
+export type SetLogInput = {
+  workout_exercise_id: number;
+  set_index: number;
+  completed_reps: number;
+  completed_weight_kg: number;
+  rir: number;
+};
+
+export type SetLogRead = {
+  id: number;
+  user_id: number;
+  plan_id: number;
+  day_id: number;
+  workout_exercise_id: number;
+  exercise_id: number;
+  week_index: number;
+  set_index: number;
+  planned_weight_kg: number | null;
+  completed_reps: number;
+  completed_weight_kg: number;
+  rir: number;
+  volume: number;
+  estimated_1rm: number;
+  created_at: string;
+};
+
+export type WeekProgress = {
+  week_index: number;
+  completed_sets: number;
+  planned_sets: number;
+  top_e1rm_per_exercise: Record<number, number>;
+  week_status: "complete" | "in_progress" | "upcoming";
+};
+
+export type FinalizeTestWeekRead = {
+  plan_id: number;
+  updated_exercises: number;
+  e1rm_snapshot: Record<number, number>;
 };
 
 export type Difficulty = "very_easy" | "easy" | "ok" | "hard" | "very_hard";

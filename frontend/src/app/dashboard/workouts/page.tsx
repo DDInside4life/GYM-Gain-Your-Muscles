@@ -37,7 +37,6 @@ export default function WorkoutsPage() {
   const [hasQuestionnaire, setHasQuestionnaire] = useState(false);
   const [progressing, setProgressing] = useState(false);
   const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
-  const [templateActionId, setTemplateActionId] = useState<number | null>(null);
 
   useEffect(() => {
     workoutApi.current().then(setPlan).catch(() => setPlan(null));
@@ -57,28 +56,6 @@ export default function WorkoutsPage() {
       setHistory((prev) => [next, ...prev.filter((p) => p.id !== next.id)]);
     } finally {
       setProgressing(false);
-    }
-  }
-
-  async function applyTemplate(templateId: number) {
-    setTemplateActionId(templateId);
-    try {
-      const result = await workoutApi.applyTemplate(templateId);
-      setPlan(result.plan);
-      setHistory((prev) => [result.plan, ...prev.filter((p) => p.id !== result.plan.id)]);
-    } finally {
-      setTemplateActionId(null);
-    }
-  }
-
-  async function generateFromTemplate(templateId: number) {
-    setTemplateActionId(templateId);
-    try {
-      const result = await workoutApi.generateFromTemplate(templateId, 28, true);
-      setPlan(result);
-      setHistory((prev) => [result, ...prev.filter((p) => p.id !== result.id)]);
-    } finally {
-      setTemplateActionId(null);
     }
   }
 
@@ -158,66 +135,52 @@ export default function WorkoutsPage() {
 
       {templates.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Готовые шаблоны</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Эталонные шаблоны</CardTitle>
+          </CardHeader>
+          <p className="text-xs text-muted mb-3">
+            Подсмотрите структуру известных программ. Реальный план собирается под вас по анкете —
+            эти карточки только для вдохновения.
+          </p>
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {templates.map((template) => {
-              const isCurrent = Number(plan?.params?.template_id) === template.id;
-              return (
-                <div
-                  key={template.id}
-                  className={`glass-card p-4 hover-lift transition-all duration-300 ${
-                    isCurrent ? "ring-1 ring-brand-500/70 dark:ring-accent-500/60" : ""
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-violet-500/15 dark:bg-accent-500/20 grid place-items-center text-lg shrink-0">
-                      {GOAL_ICON[template.split_type] ?? "🏋️"}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-sm leading-tight">{template.name}</div>
-                      <div className="text-xs text-muted mt-1">{template.days_per_week} дней/нед · {template.level}</div>
-                      <div className="text-xs text-muted mt-1 line-clamp-2">{template.description}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setExpandedTemplateId((prev) => (prev === template.id ? null : template.id))}
-                        >
-                          Подробнее
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={templateActionId === template.id}
-                          onClick={() => applyTemplate(template.id)}
-                        >
-                          {templateActionId === template.id ? "…" : "Выбрать"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={templateActionId === template.id}
-                          onClick={() => generateFromTemplate(template.id)}
-                        >
-                          {templateActionId === template.id ? "…" : "Сгенерировать"}
-                        </Button>
-                      </div>
+            {templates.map((template) => (
+              <div
+                key={template.id}
+                className="glass-card p-4 hover-lift transition-all duration-300"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-violet-500/15 dark:bg-accent-500/20 grid place-items-center text-lg shrink-0">
+                    {GOAL_ICON[template.split_type] ?? "🏋️"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-sm leading-tight">{template.name}</div>
+                    <div className="text-xs text-muted mt-1">{template.days_per_week} дней/нед · {template.level}</div>
+                    <div className="text-xs text-muted mt-1 line-clamp-2">{template.description}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setExpandedTemplateId((prev) => (prev === template.id ? null : template.id))}
+                      >
+                        Подробнее
+                      </Button>
                     </div>
                   </div>
-                  {expandedTemplateId === template.id && (
-                    <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2">
-                      {template.days.map((day) => (
-                        <div key={day.id} className="text-xs">
-                          <div className="font-semibold">{day.title}</div>
-                          <div className="text-muted">
-                            {day.exercises.map((e) => e.exercise_name).join(", ")}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              );
-            })}
+                {expandedTemplateId === template.id && (
+                  <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+                    {template.days.map((day) => (
+                      <div key={day.id} className="text-xs">
+                        <div className="font-semibold">{day.title}</div>
+                        <div className="text-muted">
+                          {day.exercises.map((e) => e.exercise_name).join(", ")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </Card>
       )}

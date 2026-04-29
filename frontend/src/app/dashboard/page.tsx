@@ -1,387 +1,287 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Dumbbell, Flame, Save, Scale, Target, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import {
+  Calendar,
+  Dumbbell,
+  Flame,
+  Plus,
+  Salad,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Chip, OptionCard } from "@/components/ui/option-card";
-import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
 import { workoutApi } from "@/features/workout/api";
-import {
-  EXPERIENCE_OPTIONS,
-  GOAL_OPTIONS,
-  RESTRICTION_OPTIONS,
-  SEX_OPTIONS,
-} from "@/features/workout/constants";
-import type { Experience, Exercise, Goal } from "@/features/workout/types";
+import { trainingApi } from "@/features/training/api";
+import type { WorkoutPlan } from "@/features/workout/types";
+import type { ProgressResponse } from "@/features/training/types";
 
-const PERSONAL_RECORDS = [
-  { label: "Жим лёжа", value: 105, unit: "кг" },
-  { label: "Приседания", value: 150, unit: "кг" },
-  { label: "Становая", value: 180, unit: "кг" },
-  { label: "Подтягивания", value: 30, unit: "раз" },
-  { label: "Жим стоя", value: 70, unit: "кг" },
-];
+const DAY_OF_WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-type ProfileForm = {
-  full_name: string;
-  sex: "" | "male" | "female";
-  height_cm: number;
-  weight_kg: number;
-  experience: Experience;
-  goal: Goal;
-  activity_factor: number;
-  global_restrictions: string[];
-  priority_exercise_ids: number[];
-};
-
-export default function ProfilePage() {
+export default function HomePage() {
   const user = useAuth((s) => s.user)!;
-  const refreshMe = useAuth((s) => s.refreshMe);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [error, setError] = useState<string>("");
-  const [workoutCount, setWorkoutCount] = useState(0);
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [exerciseQuery, setExerciseQuery] = useState("");
-
-  const [form, setForm] = useState<ProfileForm>({
-    full_name: user.full_name ?? "",
-    sex: user.sex ?? "",
-    height_cm: user.height_cm ?? 175,
-    weight_kg: user.weight_kg ?? 75,
-    experience: (user.experience as Experience) ?? "intermediate",
-    goal: (user.goal as Goal) ?? "muscle_gain",
-    activity_factor: user.activity_factor ?? 1.55,
-    global_restrictions: user.global_restrictions ?? [],
-    priority_exercise_ids: user.priority_exercise_ids ?? [],
-  });
+  const [plan, setPlan] = useState<WorkoutPlan | null>(null);
+  const [progress, setProgress] = useState<ProgressResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [historyCount, setHistoryCount] = useState(0);
 
   useEffect(() => {
-    workoutApi.history().then((h) => setWorkoutCount(h.length)).catch(() => {});
-    api<Exercise[]>("/exercises").then(setExercises).catch(() => {});
+    Promise.allSettled([
+      workoutApi.current(),
+      workoutApi.history(),
+      trainingApi.progress(),
+    ]).then(([currentRes, historyRes, progressRes]) => {
+      if (currentRes.status === "fulfilled") setPlan(currentRes.value);
+      if (historyRes.status === "fulfilled") setHistoryCount(historyRes.value.length);
+      if (progressRes.status === "fulfilled") setProgress(progressRes.value);
+      setLoading(false);
+    });
   }, []);
 
-  useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      full_name: user.full_name ?? prev.full_name,
-      sex: (user.sex ?? prev.sex) as ProfileForm["sex"],
-      height_cm: user.height_cm ?? prev.height_cm,
-      weight_kg: user.weight_kg ?? prev.weight_kg,
-      experience: (user.experience as Experience) ?? prev.experience,
-      goal: (user.goal as Goal) ?? prev.goal,
-      activity_factor: user.activity_factor ?? prev.activity_factor,
-      global_restrictions: user.global_restrictions ?? prev.global_restrictions,
-      priority_exercise_ids: user.priority_exercise_ids ?? prev.priority_exercise_ids,
-    }));
-  }, [user]);
+  const weeks = useMemo(
+    () => (plan ? Array.from(new Set(plan.days.map((d) => d.week_index))).sort((a, b) => a - b) : []),
+    [plan],
+  );
 
-  const filteredExercises = useMemo(() => {
-    const query = exerciseQuery.trim().toLowerCase();
-    if (!query) return exercises.slice(0, 60);
-    return exercises
-      .filter((ex) => (ex.name_ru || ex.name).toLowerCase().includes(query))
-      .slice(0, 60);
-  }, [exerciseQuery, exercises]);
+  const currentWeek = useMemo(() => {
+    if (!plan || weeks.length === 0) return 1;
+    const fromParams = (plan.params as Record<string, unknown> | null)?.cycle_week;
+    const value = typeof fromParams === "number" ? fromParams : 1;
+    return weeks.includes(value) ? value : weeks[0];
+  }, [plan, weeks]);
 
-  const goalOption = GOAL_OPTIONS.find((g) => g.value === form.goal);
+  const weekDays = useMemo(
+    () => (plan ? plan.days.filter((d) => d.week_index === currentWeek) : []),
+    [plan, currentWeek],
+  );
 
-  const setField = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-
-  function toggleRestriction(value: string) {
-    setForm((prev) => {
-      const has = prev.global_restrictions.includes(value);
-      return {
-        ...prev,
-        global_restrictions: has
-          ? prev.global_restrictions.filter((r) => r !== value)
-          : [...prev.global_restrictions, value],
-      };
-    });
-  }
-
-  function togglePriorityExercise(id: number) {
-    setForm((prev) => {
-      const has = prev.priority_exercise_ids.includes(id);
-      const next = has
-        ? prev.priority_exercise_ids.filter((eid) => eid !== id)
-        : [...prev.priority_exercise_ids, id].slice(0, 24);
-      return { ...prev, priority_exercise_ids: next };
-    });
-  }
-
-  async function save() {
-    setSaving(true);
-    setError("");
-    try {
-      await api("/users/me", {
-        method: "PUT",
-        body: JSON.stringify({
-          full_name: form.full_name || undefined,
-          sex: form.sex || undefined,
-          height_cm: Number(form.height_cm),
-          weight_kg: Number(form.weight_kg),
-          experience: form.experience,
-          goal: form.goal,
-          activity_factor: Number(form.activity_factor),
-          global_restrictions: form.global_restrictions,
-          priority_exercise_ids: form.priority_exercise_ids,
-        }),
-        auth: true,
-      });
-      await refreshMe();
-      setSavedAt(new Date());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить профиль");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const totalVolumeKg = progress
+    ? Object.values(progress.weekly_volume).reduce((acc, v) => acc + v, 0)
+    : 0;
+  const recentVolume = progress
+    ? Object.entries(progress.weekly_volume)
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .slice(-5)
+    : [];
 
   return (
     <div className="space-y-6 animate-fade-up">
+      <div className="relative overflow-hidden rounded-3xl bg-brand-gradient dark:bg-neon-gradient p-6 md:p-8 text-white shadow-glow-brand dark:shadow-glow">
+        <div className="absolute inset-0 grid-bg opacity-20" />
+        <div className="relative">
+          <div className="text-xs uppercase tracking-wider opacity-80">Главная</div>
+          <h1 className="display font-extrabold text-2xl md:text-3xl mt-1">
+            Привет, {user.full_name?.split(" ")[0] || user.email.split("@")[0]}
+          </h1>
+          <p className="text-sm md:text-base opacity-90 mt-1">
+            {plan
+              ? `Активная программа: ${plan.name}`
+              : "Начните с генерации программы за 4 коротких шага"}
+          </p>
+        </div>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Моя статистика</CardTitle>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone="brand">
-              {EXPERIENCE_OPTIONS.find((o) => o.value === form.experience)?.label ?? "—"}
-            </Badge>
-            <Badge tone="violet">
-              {goalOption?.label ?? "—"}
-            </Badge>
-          </div>
-        </CardHeader>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { icon: <Dumbbell size={18} />, value: workoutCount || 0, label: "Программ создано" },
-            { icon: <Flame size={18} />, value: form.priority_exercise_ids.length, label: "Приоритетных" },
-            { icon: <Target size={18} />, value: form.global_restrictions.length, label: "Ограничений" },
-            { icon: <Scale size={18} />, value: `${form.weight_kg} кг`, label: "Текущий вес" },
-          ].map((s) => (
-            <div key={s.label} className="glass-card p-4 hover-lift">
-              <div className="flex items-center justify-between">
-                <div className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
-                  {s.icon}
-                </div>
-                <TrendingUp size={14} className="text-emerald-500" />
-              </div>
-              <div className="display font-extrabold text-2xl mt-3 leading-none">{s.value}</div>
-              <div className="text-xs text-muted mt-1">{s.label}</div>
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+              <span className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+                <Sparkles size={18} />
+              </span>
+              <CardTitle>Быстрые действия</CardTitle>
             </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Личные данные</CardTitle>
-          <span className="text-xs text-muted">Используется при расчёте стартовых нагрузок</span>
-        </CardHeader>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <Label>Имя</Label>
-            <Input value={form.full_name} onChange={(e) => setField("full_name", e.target.value)} />
           </div>
-          <div>
-            <Label>Коэффициент активности</Label>
-            <Input
-              type="number"
-              step={0.05}
-              min={1.2}
-              max={2.4}
-              value={form.activity_factor}
-              onChange={(e) => setField("activity_factor", Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <Label>Рост (см)</Label>
-            <Input
-              type="number"
-              min={120}
-              max={230}
-              value={form.height_cm}
-              onChange={(e) => setField("height_cm", Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <Label>Вес тела (кг)</Label>
-            <Input
-              type="number"
-              min={30}
-              max={250}
-              value={form.weight_kg}
-              onChange={(e) => setField("weight_kg", Number(e.target.value))}
-            />
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <Label>Пол</Label>
-          <div className="grid grid-cols-2 gap-3">
-            {SEX_OPTIONS.map((option) => (
-              <OptionCard
-                key={option.value}
-                active={form.sex === option.value}
-                title={option.label}
-                onClick={() => setField("sex", option.value)}
-                size="sm"
-              />
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Опыт тренировок</CardTitle>
-          <span className="text-xs text-muted">Влияет на объём, прогрессию и сложность упражнений</span>
         </CardHeader>
-        <div className="grid md:grid-cols-3 gap-3">
-          {EXPERIENCE_OPTIONS.map((option) => (
-            <OptionCard
-              key={option.value}
-              active={form.experience === option.value}
-              title={option.label}
-              description={option.description}
-              icon={<Activity size={18} />}
-              onClick={() => setField("experience", option.value)}
-            />
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Цель тренировок</CardTitle>
-          <span className="text-xs text-muted">Определяет диапазон повторений, отдых и интенсивность</span>
-        </CardHeader>
-        <div className="grid md:grid-cols-2 gap-3">
-          {GOAL_OPTIONS.map((option) => (
-            <OptionCard
-              key={option.value}
-              active={form.goal === option.value}
-              title={`${option.icon} ${option.label}`}
-              description={option.description}
-              onClick={() => setField("goal", option.value)}
-            />
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Ограничения по здоровью</CardTitle>
-          <span className="text-xs text-muted">Эти зоны будут учитываться во всех будущих программах</span>
-        </CardHeader>
-        <div className="flex flex-wrap gap-2">
-          {RESTRICTION_OPTIONS.map((restriction) => (
-            <Chip
-              key={restriction.value}
-              tone="danger"
-              active={form.global_restrictions.includes(restriction.value)}
-              onClick={() => toggleRestriction(restriction.value)}
-            >
-              {restriction.label}
-            </Chip>
-          ))}
-        </div>
-        <p className="text-xs text-muted mt-2">
-          Упражнения с риском для отмеченных зон будут заменены на безопасные альтернативы.
-        </p>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Приоритетные упражнения</CardTitle>
-          <Badge>{form.priority_exercise_ids.length} / 24</Badge>
-        </CardHeader>
-        <p className="text-sm text-muted -mt-2">
-          Выбранные упражнения будут вставляться в программу в первую очередь, если безопасны и соответствуют структуре.
-        </p>
-        <div className="mt-3">
-          <Input
-            placeholder="Поиск по названию…"
-            value={exerciseQuery}
-            onChange={(e) => setExerciseQuery(e.target.value)}
+        <div className="grid sm:grid-cols-3 gap-3">
+          <ActionCard
+            href="/dashboard/workouts/plan"
+            icon={<Dumbbell size={18} />}
+            title="Открыть план"
+            subtitle={plan ? `Месяц ${plan.month_index}` : "Создайте программу"}
+            disabled={!plan}
+          />
+          <ActionCard
+            href="/dashboard/workouts/generate"
+            icon={<Plus size={18} />}
+            title="Сгенерировать программу"
+            subtitle="4 коротких вопроса"
+          />
+          <ActionCard
+            href="/dashboard/nutrition"
+            icon={<Salad size={18} />}
+            title="Добавить приём пищи"
+            subtitle="Питание и калории"
           />
         </div>
-        {exercises.length === 0 ? (
-          <div className="text-sm text-muted text-center py-6">Загрузка упражнений…</div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+              <span className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+                <Calendar size={18} />
+              </span>
+              <CardTitle>Текущий план</CardTitle>
+            </div>
+            {plan && (
+              <Badge tone="brand">
+                Неделя {currentWeek}
+                {weeks.length > 1 && ` из ${weeks.length}`}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        {loading ? (
+          <div className="text-sm text-muted">Загрузка…</div>
+        ) : !plan ? (
+          <div className="text-sm text-muted">
+            Активного плана нет. Сгенерируйте программу, чтобы увидеть тренировки на неделю.
+          </div>
+        ) : weekDays.length === 0 ? (
+          <div className="text-sm text-muted">Тренировок на этой неделе нет.</div>
         ) : (
-          <div className="mt-3 max-h-[320px] overflow-y-auto pr-1 grid sm:grid-cols-2 gap-2">
-            {filteredExercises.map((ex) => {
-              const active = form.priority_exercise_ids.includes(ex.id);
-              return (
-                <Chip
-                  key={ex.id}
-                  tone="violet"
-                  active={active}
-                  onClick={() => togglePriorityExercise(ex.id)}
-                  className="justify-start truncate text-left"
-                >
-                  <span className="truncate">{ex.name_ru || ex.name}</span>
-                </Chip>
-              );
-            })}
+          <div className="grid sm:grid-cols-2 gap-3">
+            {weekDays.map((day) => (
+              <Link
+                key={day.id}
+                href="/dashboard/workouts/plan"
+                className="glass-card p-4 hover-lift transition-transform"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold">{day.title}</div>
+                  <Badge>{day.is_rest ? "Отдых" : `${day.exercises.length} упр.`}</Badge>
+                </div>
+                {day.focus && (
+                  <div className="text-[12px] text-muted mt-1">{day.focus}</div>
+                )}
+                <div className="text-[11px] text-muted mt-2">
+                  {DAY_OF_WEEK[day.day_index % 7]} · день {day.day_index + 1}
+                </div>
+              </Link>
+            ))}
           </div>
         )}
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Личные рекорды</CardTitle>
-          <div className="text-xs text-muted">Все группы</div>
-        </CardHeader>
-        <PersonalRecords records={PERSONAL_RECORDS} />
-      </Card>
-
-      <div className="sticky bottom-3 z-10">
-        <div className="glass-card-strong p-3 flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-[180px] text-sm">
-            {error ? (
-              <span className="text-red-400">{error}</span>
-            ) : savedAt ? (
-              <span className="text-emerald-400">
-                Сохранено в {savedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3">
+              <span className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+                <TrendingUp size={18} />
               </span>
-            ) : (
-              <span className="text-muted">Изменения применятся к будущим программам</span>
+              <CardTitle>Прогресс</CardTitle>
+            </div>
+            {progress && progress.volume_delta_pct !== 0 && (
+              <Badge tone={progress.volume_delta_pct >= 0 ? "success" : "default"}>
+                {progress.volume_delta_pct >= 0 ? "+" : ""}
+                {progress.volume_delta_pct.toFixed(1)}%
+              </Badge>
             )}
           </div>
-          <Button onClick={save} disabled={saving}>
-            <Save size={14} /> {saving ? "Сохранение…" : "Сохранить профиль"}
-          </Button>
+        </CardHeader>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Stat
+            icon={<Dumbbell size={18} />}
+            value={historyCount}
+            label="Программ создано"
+          />
+          <Stat
+            icon={<Flame size={18} />}
+            value={recentVolume.length}
+            label="Активных недель"
+          />
+          <Stat
+            icon={<TrendingUp size={18} />}
+            value={`${(totalVolumeKg / 1000).toFixed(1)} т`}
+            label="Общий объём"
+          />
         </div>
-      </div>
+        {recentVolume.length > 0 && (
+          <div className="mt-4">
+            <div className="text-xs text-muted mb-2">Объём по неделям</div>
+            <VolumeChart data={recentVolume} />
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
 
-type PRItem = { label: string; value: number; unit: string };
-
-function PersonalRecords({ records }: { records: PRItem[] }) {
-  const max = Math.max(...records.map((r) => r.value), 1);
+function ActionCard({
+  href,
+  icon,
+  title,
+  subtitle,
+  disabled = false,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <div className="glass-card p-4 opacity-60 cursor-not-allowed">
+        <div className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+          {icon}
+        </div>
+        <div className="mt-3 font-semibold">{title}</div>
+        <div className="text-[12px] text-muted mt-1">{subtitle}</div>
+      </div>
+    );
+  }
   return (
-    <div className="grid grid-cols-5 gap-3 md:gap-4 items-end h-[200px]">
-      {records.map((r) => {
-        const heightPct = (r.value / max) * 100;
+    <Link href={href} className="glass-card p-4 hover-lift transition-transform">
+      <div className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+        {icon}
+      </div>
+      <div className="mt-3 font-semibold">{title}</div>
+      <div className="text-[12px] text-muted mt-1">{subtitle}</div>
+    </Link>
+  );
+}
+
+function Stat({
+  icon,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  value: number | string;
+  label: string;
+}) {
+  return (
+    <div className="glass-card p-4 hover-lift">
+      <div className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
+        {icon}
+      </div>
+      <div className="display font-extrabold text-2xl mt-3 leading-none">{value}</div>
+      <div className="text-xs text-muted mt-1">{label}</div>
+    </div>
+  );
+}
+
+function VolumeChart({ data }: { data: Array<[string, number]> }) {
+  const max = Math.max(...data.map(([, v]) => v), 1);
+  return (
+    <div className="grid grid-cols-5 gap-3 items-end h-[120px]">
+      {data.map(([week, vol]) => {
+        const heightPct = Math.max((vol / max) * 100, 8);
         return (
-          <div key={r.label} className="flex flex-col items-center justify-end h-full">
-            <div className="display font-bold text-sm mb-2">
-              {r.value} {r.unit}
-            </div>
+          <div key={week} className="flex flex-col items-center justify-end h-full">
+            <div className="text-[10px] text-muted mb-1">{vol.toFixed(0)}</div>
             <div
-              className="w-full max-w-[64px] rounded-t-xl bg-brand-gradient dark:bg-neon-gradient shadow-glow-brand dark:shadow-glow"
-              style={{ height: `${Math.max(heightPct, 12)}%` }}
+              className="w-full max-w-[48px] rounded-t-lg bg-brand-gradient dark:bg-neon-gradient"
+              style={{ height: `${heightPct}%` }}
             />
-            <div className="text-[11px] text-muted mt-2 text-center leading-tight">{r.label}</div>
+            <div className="text-[10px] text-muted mt-1">Нед. {week}</div>
           </div>
         );
       })}

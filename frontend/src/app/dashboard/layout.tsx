@@ -3,17 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Dumbbell, LineChart, ListChecks, LogOut, Salad, Settings, User } from "lucide-react";
+import { Dumbbell, Home, LineChart, ListChecks, LogOut, Salad, Settings, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 
 const tabs = [
-  { href: "/dashboard", label: "Профиль", icon: User },
+  { href: "/dashboard", label: "Главная", icon: Home },
   { href: "/dashboard/workouts", label: "Тренировки", icon: Dumbbell },
   { href: "/dashboard/exercises", label: "Упражнения", icon: ListChecks },
   { href: "/dashboard/nutrition", label: "Питание", icon: Salad },
   { href: "/dashboard/progress", label: "Прогресс", icon: LineChart },
+  { href: "/dashboard/profile", label: "Профиль", icon: User },
 ];
 
 const EXPERIENCE_LABEL: Record<string, string> = {
