@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-store";
 import { workoutApi } from "@/features/workout/api";
 import { trainingApi } from "@/features/training/api";
-import type { WorkoutPlan } from "@/features/workout/types";
+import type { WeekProgress, WorkoutPlan } from "@/features/workout/types";
 import type { ProgressResponse } from "@/features/training/types";
 
 const DAY_OF_WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -28,6 +28,7 @@ export default function HomePage() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [historyCount, setHistoryCount] = useState(0);
+  const [weeklyProgress, setWeeklyProgress] = useState<WeekProgress[]>([]);
 
   useEffect(() => {
     Promise.allSettled([
@@ -42,6 +43,17 @@ export default function HomePage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!plan) {
+      setWeeklyProgress([]);
+      return;
+    }
+    workoutApi
+      .planProgress(plan.id)
+      .then(setWeeklyProgress)
+      .catch(() => setWeeklyProgress([]));
+  }, [plan]);
+
   const weeks = useMemo(
     () => (plan ? Array.from(new Set(plan.days.map((d) => d.week_index))).sort((a, b) => a - b) : []),
     [plan],
@@ -49,14 +61,21 @@ export default function HomePage() {
 
   const currentWeek = useMemo(() => {
     if (!plan || weeks.length === 0) return 1;
-    const fromParams = (plan.params as Record<string, unknown> | null)?.cycle_week;
-    const value = typeof fromParams === "number" ? fromParams : 1;
-    return weeks.includes(value) ? value : weeks[0];
-  }, [plan, weeks]);
+    const inProgress = weeklyProgress.find((w) => w.week_status === "in_progress");
+    if (inProgress && weeks.includes(inProgress.week_index)) return inProgress.week_index;
+    const upcoming = weeklyProgress.find((w) => w.week_status === "upcoming");
+    if (upcoming && weeks.includes(upcoming.week_index)) return upcoming.week_index;
+    const fromPlan = typeof plan.cycle_week === "number" ? plan.cycle_week : 1;
+    return weeks.includes(fromPlan) ? fromPlan : weeks[0];
+  }, [plan, weeks, weeklyProgress]);
 
   const weekDays = useMemo(
     () => (plan ? plan.days.filter((d) => d.week_index === currentWeek) : []),
     [plan, currentWeek],
+  );
+  const weekStats = useMemo(
+    () => weeklyProgress.find((w) => w.week_index === currentWeek) ?? null,
+    [weeklyProgress, currentWeek],
   );
 
   const totalVolumeKg = progress
@@ -126,7 +145,7 @@ export default function HomePage() {
               <span className="h-9 w-9 rounded-xl grid place-items-center bg-brand-500/10 text-brand-500 dark:bg-violet-500/15 dark:text-violet-300">
                 <Calendar size={18} />
               </span>
-              <CardTitle>Текущий план</CardTitle>
+              <CardTitle>План на эту неделю</CardTitle>
             </div>
             {plan && (
               <Badge tone="brand">
@@ -136,6 +155,17 @@ export default function HomePage() {
             )}
           </div>
         </CardHeader>
+        {!!weekStats && (
+          <div className="mb-3 text-xs text-muted">
+            Выполнено подходов: {weekStats.completed_sets}/{weekStats.planned_sets}
+            {" · Статус: "}
+            {weekStats.week_status === "complete"
+              ? "завершена"
+              : weekStats.week_status === "in_progress"
+              ? "в процессе"
+              : "запланирована"}
+          </div>
+        )}
         {loading ? (
           <div className="text-sm text-muted">Загрузка…</div>
         ) : !plan ? (
@@ -149,7 +179,7 @@ export default function HomePage() {
             {weekDays.map((day) => (
               <Link
                 key={day.id}
-                href="/dashboard/workouts/plan"
+                href={day.is_rest ? "/dashboard/workouts/plan" : `/dashboard/workouts/plan/${day.id}`}
                 className="glass-card p-4 hover-lift transition-transform"
               >
                 <div className="flex items-center justify-between">
