@@ -8,7 +8,9 @@ never bypass the generator.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from typing import Annotated
+
+from fastapi import APIRouter, Header, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -18,6 +20,7 @@ from app.models.questionnaire import WorkoutQuestionnaire
 from app.models.user import Experience, Goal, Sex
 from app.models.workout import SetLog, WorkoutDay, WorkoutExercise
 from app.repositories.exercise import ExerciseRepository
+from app.repositories.idempotency import IdempotencyRepository
 from app.repositories.questionnaire import WorkoutQuestionnaireRepository
 from app.repositories.workout import (
     MesocycleRepository,
@@ -43,6 +46,7 @@ from app.schemas.workout import (
 )
 from app.services.workout import ProgressionService, TemplateProgramService, WorkoutGenerator
 from app.services.workout.auto_weights import AutoWeightCalculator, adjusted_e1rm
+from app.services.idempotency import IdempotencyService
 
 router = APIRouter()
 
@@ -142,8 +146,28 @@ async def progress(user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
 
 
 @router.post("/regenerate", response_model=WorkoutPlanRead, status_code=status.HTTP_201_CREATED)
-async def regenerate_next_month(user: CurrentUser, db: DbSession) -> WorkoutPlanRead:
-    return await _generate_from_latest_questionnaire(user, db)
+async def regenerate_next_month(
+    user: CurrentUser,
+    db: DbSession,
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> WorkoutPlanRead:
+    async def _action() -> tuple[int, dict]:
+        plan = await _generate_from_latest_questionnaire(user, db)
+        return status.HTTP_201_CREATED, plan.model_dump()
+
+    idempotency = IdempotencyService(IdempotencyRepository(db))
+    result = await idempotency.execute(
+        user_id=user.id,
+        operation="workouts.regenerate",
+        idempotency_key=idempotency_key,
+        request_payload={"user_id": user.id},
+        action=_action,
+    )
+    if not result.replayed:
+        await db.commit()
+    response.status_code = result.status_code
+    return WorkoutPlanRead.model_validate(result.body)
 
 
 @router.post("/feedback", response_model=WorkoutFeedbackRead, status_code=status.HTTP_201_CREATED)
@@ -171,7 +195,11 @@ async def get_plan(plan_id: int, user: CurrentUser, db: DbSession) -> WorkoutPla
     status_code=status.HTTP_200_OK,
 )
 async def finalize_test_week(
-    plan_id: int, user: CurrentUser, db: DbSession,
+    plan_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> FinalizeTestWeekRead:
     """Compute working weights for weeks 2..N from test-week SetLog data.
 
@@ -193,25 +221,37 @@ async def finalize_test_week(
     except ValueError:
         experience = Experience.intermediate
 
-    calc = AutoWeightCalculator(db)
-    results = await calc.recalculate_working_weeks(plan, goal, experience)
+    async def _action() -> tuple[int, dict]:
+        calc = AutoWeightCalculator(db)
+        results = await calc.recalculate_working_weeks(plan, goal, experience)
+        e1rm_snapshot = {r.exercise_id: r.e1rm for r in results}
 
-    e1rm_snapshot = {r.exercise_id: r.e1rm for r in results}
+        meso_repo = MesocycleRepository(db)
+        meso = await meso_repo.for_plan(plan_id)
+        if meso is not None:
+            audit = dict(meso.weekly_volume or {})
+            audit["e1rm_after_test"] = {str(k): v for k, v in e1rm_snapshot.items()}
+            audit["finalized"] = True
+            meso.weekly_volume = audit
+        payload = {
+            "plan_id": plan_id,
+            "updated_exercises": len(results),
+            "e1rm_snapshot": e1rm_snapshot,
+        }
+        return status.HTTP_200_OK, payload
 
-    meso_repo = MesocycleRepository(db)
-    meso = await meso_repo.for_plan(plan_id)
-    if meso is not None:
-        audit = dict(meso.weekly_volume or {})
-        audit["e1rm_after_test"] = {str(k): v for k, v in e1rm_snapshot.items()}
-        audit["finalized"] = True
-        meso.weekly_volume = audit
-
-    await db.commit()
-    return FinalizeTestWeekRead(
-        plan_id=plan_id,
-        updated_exercises=len(results),
-        e1rm_snapshot=e1rm_snapshot,
+    idempotency = IdempotencyService(IdempotencyRepository(db))
+    result = await idempotency.execute(
+        user_id=user.id,
+        operation="workouts.finalize_test_week",
+        idempotency_key=idempotency_key,
+        request_payload={"plan_id": plan_id},
+        action=_action,
     )
+    if not result.replayed:
+        await db.commit()
+    response.status_code = result.status_code
+    return FinalizeTestWeekRead.model_validate(result.body)
 
 
 @router.get("/{plan_id}/progress", response_model=list[WeekProgressRead])
@@ -264,7 +304,13 @@ async def plan_progress(plan_id: int, user: CurrentUser, db: DbSession) -> list[
 
 
 @router.post("/sets", response_model=SetLogRead, status_code=status.HTTP_201_CREATED)
-async def log_set(payload: SetLogInput, user: CurrentUser, db: DbSession) -> SetLogRead:
+async def log_set(
+    payload: SetLogInput,
+    user: CurrentUser,
+    db: DbSession,
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> SetLogRead:
     """Log a completed set. Backend computes volume and adjusted e1RM."""
     we = await db.get(WorkoutExercise, payload.workout_exercise_id)
     if we is None:
@@ -276,34 +322,46 @@ async def log_set(payload: SetLogInput, user: CurrentUser, db: DbSession) -> Set
     if plan is None or plan.user_id != user.id:
         raise NotFound("План не найден")
 
-    volume = round(payload.completed_weight_kg * payload.completed_reps, 2)
-    e1rm = adjusted_e1rm(payload.completed_weight_kg, payload.completed_reps, payload.rir)
+    async def _action() -> tuple[int, dict]:
+        volume = round(payload.completed_weight_kg * payload.completed_reps, 2)
+        e1rm = adjusted_e1rm(payload.completed_weight_kg, payload.completed_reps, payload.rir)
+        log = SetLog(
+            user_id=user.id,
+            plan_id=plan.id,
+            day_id=day.id,
+            workout_exercise_id=we.id,
+            exercise_id=we.exercise_id,
+            week_index=day.week_index,
+            set_index=payload.set_index,
+            planned_weight_kg=we.weight_kg,
+            completed_reps=payload.completed_reps,
+            completed_weight_kg=payload.completed_weight_kg,
+            rir=payload.rir,
+            volume=volume,
+            estimated_1rm=e1rm,
+        )
+        db.add(log)
+        await db.flush()
+        await db.refresh(log)
 
-    log = SetLog(
+        meso_repo = MesocycleRepository(db)
+        meso = await meso_repo.for_plan(plan.id)
+        if meso is not None and meso.current_week != day.week_index:
+            meso.current_week = day.week_index
+        return status.HTTP_201_CREATED, SetLogRead.model_validate(log).model_dump()
+
+    idempotency = IdempotencyService(IdempotencyRepository(db))
+    result = await idempotency.execute(
         user_id=user.id,
-        plan_id=plan.id,
-        day_id=day.id,
-        workout_exercise_id=we.id,
-        exercise_id=we.exercise_id,
-        week_index=day.week_index,
-        set_index=payload.set_index,
-        planned_weight_kg=we.weight_kg,
-        completed_reps=payload.completed_reps,
-        completed_weight_kg=payload.completed_weight_kg,
-        rir=payload.rir,
-        volume=volume,
-        estimated_1rm=e1rm,
+        operation="workouts.log_set",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(),
+        action=_action,
     )
-    db.add(log)
-
-    meso_repo = MesocycleRepository(db)
-    meso = await meso_repo.for_plan(plan.id)
-    if meso is not None and meso.current_week != day.week_index:
-        meso.current_week = day.week_index
-
-    await db.commit()
-    await db.refresh(log)
-    return SetLogRead.model_validate(log)
+    if not result.replayed:
+        await db.commit()
+    response.status_code = result.status_code
+    return SetLogRead.model_validate(result.body)
 
 
 @router.delete("/sets/{log_id}", status_code=status.HTTP_200_OK)

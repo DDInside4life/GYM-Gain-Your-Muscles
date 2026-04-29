@@ -12,6 +12,7 @@ from app.models.forum import ForumQuestion, ForumComment, ForumReaction
 from app.models.progress import WeightEntry
 from app.models.ai_event import AIEvent
 from app.models.questionnaire import WorkoutQuestionnaire
+from app.models.idempotency import IdempotencyRecord
 
 __all__ = [
     "Base", "User",
@@ -24,4 +25,5 @@ __all__ = [
     "ForumQuestion", "ForumComment", "ForumReaction",
     "WeightEntry",
     "AIEvent",
+    "IdempotencyRecord",
 ]
