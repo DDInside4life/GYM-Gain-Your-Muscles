@@ -54,3 +54,16 @@ class TemplateApplyResponse(BaseModel):
     plan: WorkoutPlanRead
     source: str
     template_id: int
+
+
+class TemplateGenerateInput(BaseModel):
+    """Simple template-driven generation. No fitness math, no AI knobs."""
+
+    goal: str | None = Field(default=None, max_length=40)
+    days_per_week: int | None = Field(default=None, ge=1, le=7)
+    training_structure: str | None = Field(default=None, max_length=40)
+    weeks: int = Field(default=4, ge=1, le=12)
+
+
+class WorkoutExerciseWeightInput(BaseModel):
+    weight_kg: float | None = Field(default=None, ge=0, le=700)

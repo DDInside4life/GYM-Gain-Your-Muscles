@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter
 
-from app.core.deps import CurrentUser, DbSession
-from app.schemas.template import TemplateApplyInput, TemplateApplyResponse, WorkoutTemplateRead
-from app.schemas.workout import WorkoutPlanRead
+from app.core.deps import DbSession
+from app.schemas.template import WorkoutTemplateRead
 from app.services.workout import TemplateProgramService
 
 router = APIRouter()
@@ -12,6 +11,8 @@ router = APIRouter()
 
 @router.get("", response_model=list[WorkoutTemplateRead])
 async def list_templates(db: DbSession) -> list[WorkoutTemplateRead]:
+    """Read-only template catalog. Materialization always flows through the
+    questionnaire-driven generator; templates are pure inspiration."""
     items = await TemplateProgramService(db).list_templates()
     result: list[WorkoutTemplateRead] = []
     for template in items:
@@ -67,17 +68,3 @@ async def list_templates(db: DbSession) -> list[WorkoutTemplateRead]:
             ),
         )
     return result
-
-
-@router.post("/apply", response_model=TemplateApplyResponse, status_code=status.HTTP_201_CREATED)
-async def apply_template(
-    payload: TemplateApplyInput,
-    user: CurrentUser,
-    db: DbSession,
-) -> TemplateApplyResponse:
-    plan, source = await TemplateProgramService(db).apply_template(user, payload.template_id, ai_adapt=False)
-    return TemplateApplyResponse(
-        plan=WorkoutPlanRead.model_validate(plan),
-        source=source,
-        template_id=payload.template_id,
-    )

@@ -3,10 +3,17 @@ from __future__ import annotations
 from datetime import date
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.user import Goal, Sex
 from app.schemas.common import ORMModel, TimestampMixin
+
+
+def _non_blank(value: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise ValueError("Не должно быть пустым")
+    return cleaned
 
 
 class NutritionInput(BaseModel):
@@ -48,14 +55,24 @@ class MealCreateInput(BaseModel):
     date: date
     name: str = Field(min_length=1, max_length=80)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim_name(cls, v: str) -> str:
+        return _non_blank(v)
+
 
 class FoodEntryCreateInput(BaseModel):
-    meal_id: int
+    meal_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=140)
     protein_per_100g: float = Field(ge=0, le=1000)
     fat_per_100g: float = Field(ge=0, le=1000)
     carbs_per_100g: float = Field(ge=0, le=1000)
     grams: float = Field(gt=0, le=5000)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim_name(cls, v: str) -> str:
+        return _non_blank(v)
 
 
 class FoodEntryRead(ORMModel, TimestampMixin):

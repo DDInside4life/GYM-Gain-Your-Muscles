@@ -15,6 +15,7 @@ from app.core.database import SessionLocal
 from app.core.limiter import limiter
 from app.core.security import hash_password
 from app.data.seed_content import ensure_seed_content
+from app.data.seed_templates import ensure_seed_templates
 from app.models.user import User
 from app.repositories.user import UserRepository
 from app.routes import api_router
@@ -46,6 +47,15 @@ async def _ensure_admin() -> None:
             await ensure_seed_content(db, created.id)
 
 
+async def _ensure_templates() -> None:
+    async with SessionLocal() as db:
+        try:
+            created, updated = await ensure_seed_templates(db)
+            logger.info("workout templates ensured: created=%d updated=%d", created, updated)
+        except Exception:
+            logger.exception("failed to ensure workout templates")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     try:
@@ -54,6 +64,7 @@ async def lifespan(_app: FastAPI):
         logger.info("admin already exists (race on first boot)")
     except Exception:
         logger.exception("failed to ensure admin user")
+    await _ensure_templates()
     yield
 
 

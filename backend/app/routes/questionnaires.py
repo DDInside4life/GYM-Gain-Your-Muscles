@@ -5,6 +5,7 @@ from fastapi import APIRouter, status
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFound
 from app.models.questionnaire import WorkoutQuestionnaire
+from app.models.user import Experience, Goal, Sex
 from app.repositories.questionnaire import WorkoutQuestionnaireRepository
 from app.repositories.workout import WorkoutPlanRepository
 from app.schemas.questionnaire import WorkoutQuestionnaireInput, WorkoutQuestionnaireRead
@@ -29,9 +30,36 @@ def _to_orm(user_id: int, payload: WorkoutQuestionnaireInput) -> WorkoutQuestion
         days_per_week=payload.days_per_week,
         available_days=list(payload.available_days),
         notes=payload.notes,
+        priority_exercise_ids=list(payload.priority_exercise_ids),
+        session_duration_min=payload.session_duration_min,
+        training_structure=payload.training_structure,
+        periodization=payload.periodization,
+        cycle_length_weeks=payload.cycle_length_weeks,
         config={
-            "version": 1,
+            "version": 2,
         },
+    )
+
+
+def _row_to_input(row: WorkoutQuestionnaire) -> WorkoutQuestionnaireInput:
+    return WorkoutQuestionnaireInput(
+        sex=Sex(row.sex),
+        age=row.age,
+        height_cm=row.height_cm,
+        weight_kg=row.weight_kg,
+        experience=Experience(row.experience),
+        goal=Goal(row.goal),
+        location=row.location,
+        equipment=list(row.equipment or []),
+        injuries=list(row.injuries or []),
+        days_per_week=row.days_per_week,
+        available_days=list(row.available_days or []),
+        notes=row.notes or "",
+        session_duration_min=row.session_duration_min,
+        training_structure=row.training_structure,
+        periodization=row.periodization,
+        cycle_length_weeks=row.cycle_length_weeks,
+        priority_exercise_ids=list(row.priority_exercise_ids or []),
     )
 
 
@@ -74,13 +102,7 @@ async def generate_from_questionnaire(
     row = await repo.get(questionnaire_id)
     if row is None or row.user_id != user.id:
         raise NotFound("Анкета не найдена")
-    payload = WorkoutQuestionnaireInput.model_validate({
-        "sex": row.sex, "age": row.age, "height_cm": row.height_cm, "weight_kg": row.weight_kg,
-        "experience": row.experience, "goal": row.goal, "location": row.location,
-        "equipment": row.equipment, "injuries": row.injuries,
-        "days_per_week": row.days_per_week, "available_days": row.available_days,
-        "notes": row.notes,
-    })
+    payload = _row_to_input(row)
     plan = await WorkoutGenerator(db).generate(user, payload, questionnaire_id=row.id)
     row.plan_id = plan.id
     await db.commit()

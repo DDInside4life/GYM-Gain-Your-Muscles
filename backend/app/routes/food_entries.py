@@ -30,7 +30,11 @@ async def create_food_entry(
     return FoodEntryRead.model_validate(entry)
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_food_entry(entry_id: int, user: CurrentUser, db: DbSession) -> Response:
     service = NutritionTrackingService(db)
     await service.delete_food_entry(user=user, entry_id=entry_id)

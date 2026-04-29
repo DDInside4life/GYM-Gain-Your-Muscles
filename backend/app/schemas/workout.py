@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from app.models.user import Experience, Goal
 from app.models.workout import Difficulty, ProgramPhase
 from app.schemas.common import ORMModel, TimestampMixin
 from app.schemas.exercise import ExerciseRead
+
+TrainingStructure = Literal["full_body", "half_split", "upper_lower", "split"]
+Periodization = Literal["dup", "block", "linear", "emergent"]
+ALLOWED_DURATIONS: tuple[int, ...] = (45, 60, 90, 120, 150)
 
 
 class WorkoutGenerateInput(BaseModel):
@@ -17,6 +23,38 @@ class WorkoutGenerateInput(BaseModel):
     equipment: list[str] = Field(default_factory=list, max_length=10)
     injuries: list[str] = Field(default_factory=list, max_length=10)
     days_per_week: int = Field(default=4, ge=2, le=6)
+
+    session_duration_min: int | None = None
+    training_structure: TrainingStructure | None = None
+    periodization: Periodization | None = None
+    cycle_length_weeks: int | None = Field(default=None, ge=3, le=16)
+    priority_exercise_ids: list[int] = Field(default_factory=list, max_length=24)
+
+    @field_validator("session_duration_min", mode="before")
+    @classmethod
+    def _validate_duration(cls, value: int | None) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            ivalue = int(value)
+        except (TypeError, ValueError):
+            return None
+        return min(ALLOWED_DURATIONS, key=lambda candidate: abs(candidate - ivalue))
+
+    @field_validator("priority_exercise_ids", mode="before")
+    @classmethod
+    def _dedupe_priority(cls, value: list[int] | None) -> list[int]:
+        if not value:
+            return []
+        seen: list[int] = []
+        for raw in value:
+            try:
+                pid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if pid > 0 and pid not in seen:
+                seen.append(pid)
+        return seen
 
 
 class WorkoutExerciseRead(ORMModel, TimestampMixin):
@@ -32,6 +70,7 @@ class WorkoutExerciseRead(ORMModel, TimestampMixin):
     test_instruction: str = ""
     target_rir: float | None = None
     rpe_text: str = ""
+    superset_group: int | None = None
     exercise: ExerciseRead
 
     @computed_field  # type: ignore[misc]
@@ -89,7 +128,7 @@ class WorkoutExercisePatch(BaseModel):
     sets: int = Field(ge=1, le=8)
     reps_min: int = Field(ge=1, le=30)
     reps_max: int = Field(ge=1, le=30)
-    weight_kg: float | None = Field(default=None, ge=0)
+    weight_kg: float | None = Field(default=None, ge=0, le=700)
     rest_sec: int = Field(default=90, ge=20, le=600)
     notes: str = Field(default="", max_length=240)
     target_percent_1rm: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -97,6 +136,13 @@ class WorkoutExercisePatch(BaseModel):
     test_instruction: str = Field(default="", max_length=240)
     target_rir: float | None = Field(default=None, ge=0.0, le=10.0)
     rpe_text: str = Field(default="", max_length=200)
+    superset_group: int | None = Field(default=None, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def _check_reps_order(self) -> "WorkoutExercisePatch":
+        if self.reps_min > self.reps_max:
+            raise ValueError("reps_min не может быть больше reps_max")
+        return self
 
 
 class WorkoutDayPatch(BaseModel):
@@ -119,3 +165,41 @@ class WorkoutResultRead(ORMModel, TimestampMixin):
     reps_completed: int
     weight_kg: float
     estimated_1rm: float
+
+
+class SetLogInput(BaseModel):
+    workout_exercise_id: int = Field(gt=0)
+    set_index: int = Field(ge=0, le=20)
+    completed_reps: int = Field(ge=1, le=60)
+    completed_weight_kg: float = Field(gt=0, lt=700)
+    rir: float = Field(ge=0.0, le=10.0)
+
+
+class SetLogRead(ORMModel, TimestampMixin):
+    user_id: int
+    plan_id: int
+    day_id: int
+    workout_exercise_id: int
+    exercise_id: int
+    week_index: int
+    set_index: int
+    planned_weight_kg: float | None
+    completed_reps: int
+    completed_weight_kg: float
+    rir: float
+    volume: float
+    estimated_1rm: float
+
+
+class WeekProgressRead(BaseModel):
+    week_index: int
+    completed_sets: int
+    planned_sets: int
+    top_e1rm_per_exercise: dict[int, float]
+    week_status: Literal["complete", "in_progress", "upcoming"]
+
+
+class FinalizeTestWeekRead(BaseModel):
+    plan_id: int
+    updated_exercises: int
+    e1rm_snapshot: dict[int, float]

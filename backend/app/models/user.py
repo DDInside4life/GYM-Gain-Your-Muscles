@@ -5,6 +5,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Date, Enum, Float, Integer, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -51,6 +52,12 @@ class User(Base):
     experience: Mapped[Experience | None] = mapped_column(Enum(Experience, name="user_experience"))
     goal: Mapped[Goal | None] = mapped_column(Enum(Goal, name="user_goal"))
     activity_factor: Mapped[float] = mapped_column(Float, default=1.55, nullable=False)
+    global_restrictions: Mapped[list[str]] = mapped_column(
+        ARRAY(String(40)), default=list, nullable=False, server_default="{}",
+    )
+    priority_exercise_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer()), default=list, nullable=False, server_default="{}",
+    )
 
     workout_plans: Mapped[list["WorkoutPlan"]] = relationship(
         back_populates="user", cascade="all, delete-orphan",

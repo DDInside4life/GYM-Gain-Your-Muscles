@@ -31,6 +31,15 @@ class WorkoutQuestionnaire(Base):
     available_days: Mapped[list[str]] = mapped_column(ARRAY(String(3)), default=list, nullable=False)
     notes: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     config: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+    priority_exercise_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer()), default=list, nullable=False, server_default="{}",
+    )
+    session_duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    training_structure: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    periodization: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cycle_length_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     plan_id: Mapped[int | None] = mapped_column(
         ForeignKey("workout_plans.id", ondelete="SET NULL"), nullable=True,
     )

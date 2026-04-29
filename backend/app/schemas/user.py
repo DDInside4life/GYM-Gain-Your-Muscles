@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import Experience, Goal, Sex
 from app.schemas.common import ORMModel, TimestampMixin
@@ -22,6 +22,35 @@ class UserProfileUpdate(BaseModel):
     experience: Experience | None = None
     goal: Goal | None = None
     activity_factor: float | None = Field(default=None, ge=1.2, le=2.4)
+    global_restrictions: list[str] | None = Field(default=None, max_length=20)
+    priority_exercise_ids: list[int] | None = Field(default=None, max_length=24)
+
+    @field_validator("global_restrictions", mode="before")
+    @classmethod
+    def _normalize_restrictions(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        seen: list[str] = []
+        for raw in value:
+            token = str(raw).strip().lower()
+            if token and token not in seen:
+                seen.append(token)
+        return seen
+
+    @field_validator("priority_exercise_ids", mode="before")
+    @classmethod
+    def _dedupe_priority(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        seen: list[int] = []
+        for raw in value:
+            try:
+                pid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if pid > 0 and pid not in seen:
+                seen.append(pid)
+        return seen
 
 
 class UserRead(ORMModel, TimestampMixin):
@@ -36,6 +65,8 @@ class UserRead(ORMModel, TimestampMixin):
     experience: Experience | None
     goal: Goal | None
     activity_factor: float
+    global_restrictions: list[str] = Field(default_factory=list)
+    priority_exercise_ids: list[int] = Field(default_factory=list)
 
 
 class WeightEntryCreate(BaseModel):

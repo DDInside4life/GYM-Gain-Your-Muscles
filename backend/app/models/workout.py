@@ -110,6 +110,7 @@ class WorkoutExercise(Base):
     test_instruction: Mapped[str] = mapped_column(String(240), default="", nullable=False)
     target_rir: Mapped[float | None] = mapped_column(Float)
     rpe_text: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    superset_group: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     day: Mapped["WorkoutDay"] = relationship(back_populates="exercises")
     exercise: Mapped["Exercise"] = relationship()

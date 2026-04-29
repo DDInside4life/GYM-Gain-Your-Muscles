@@ -200,6 +200,15 @@ class MesocycleRepository(BaseRepository[Mesocycle]):
         res = await self.db.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def for_plan(self, plan_id: int) -> Mesocycle | None:
+        stmt = (
+            select(Mesocycle)
+            .where(Mesocycle.plan_id == plan_id)
+            .limit(1)
+        )
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def deactivate_user_cycles(self, user_id: int) -> None:
         await self.db.execute(
             update(Mesocycle)
@@ -232,3 +241,32 @@ class SetLogRepository(BaseRepository[SetLog]):
         )
         res = await self.db.execute(stmt)
         return list(reversed(res.scalars().all()))
+
+    async def for_plan_day(self, plan_id: int, day_id: int) -> list[SetLog]:
+        stmt = (
+            select(SetLog)
+            .where(SetLog.plan_id == plan_id, SetLog.day_id == day_id)
+            .order_by(SetLog.workout_exercise_id, SetLog.set_index)
+        )
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def for_plan_week(self, plan_id: int, week_index: int) -> list[SetLog]:
+        stmt = (
+            select(SetLog)
+            .where(SetLog.plan_id == plan_id, SetLog.week_index == week_index)
+        )
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def top_e1rm_for_plan(self, plan_id: int) -> dict[int, float]:
+        stmt = (
+            select(SetLog.exercise_id, SetLog.estimated_1rm)
+            .where(SetLog.plan_id == plan_id)
+        )
+        res = await self.db.execute(stmt)
+        best: dict[int, float] = {}
+        for exercise_id, e1rm in res.all():
+            if e1rm > best.get(exercise_id, 0.0):
+                best[exercise_id] = float(e1rm)
+        return best

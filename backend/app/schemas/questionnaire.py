@@ -10,6 +10,9 @@ from app.schemas.common import ORMModel, TimestampMixin
 
 WEEK_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 TrainingLocation = Literal["gym", "home"]
+TrainingStructure = Literal["full_body", "half_split", "upper_lower", "split"]
+Periodization = Literal["dup", "block", "linear", "emergent"]
+ALLOWED_DURATIONS: tuple[int, ...] = (45, 60, 90, 120, 150)
 
 
 class WorkoutQuestionnaireInput(BaseModel):
@@ -25,6 +28,12 @@ class WorkoutQuestionnaireInput(BaseModel):
     days_per_week: int = Field(ge=2, le=6)
     available_days: list[str] = Field(default_factory=list, max_length=7)
     notes: str = Field(default="", max_length=500)
+
+    session_duration_min: int | None = None
+    training_structure: TrainingStructure | None = None
+    periodization: Periodization | None = None
+    cycle_length_weeks: int | None = Field(default=None, ge=3, le=16)
+    priority_exercise_ids: list[int] = Field(default_factory=list, max_length=24)
 
     @field_validator("equipment", "injuries", mode="before")
     @classmethod
@@ -45,6 +54,32 @@ class WorkoutQuestionnaireInput(BaseModel):
                 cleaned.append(day)
         return cleaned
 
+    @field_validator("session_duration_min", mode="before")
+    @classmethod
+    def _validate_duration(cls, value: int | None) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            ivalue = int(value)
+        except (TypeError, ValueError):
+            return None
+        return min(ALLOWED_DURATIONS, key=lambda candidate: abs(candidate - ivalue))
+
+    @field_validator("priority_exercise_ids", mode="before")
+    @classmethod
+    def _dedupe_priority(cls, value: list[int] | None) -> list[int]:
+        if not value:
+            return []
+        seen: list[int] = []
+        for raw in value:
+            try:
+                pid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if pid > 0 and pid not in seen:
+                seen.append(pid)
+        return seen
+
 
 class WorkoutQuestionnaireRead(ORMModel, TimestampMixin):
     user_id: int
@@ -62,3 +97,8 @@ class WorkoutQuestionnaireRead(ORMModel, TimestampMixin):
     notes: str
     config: dict
     plan_id: int | None
+    priority_exercise_ids: list[int] = Field(default_factory=list)
+    session_duration_min: int | None = None
+    training_structure: str | None = None
+    periodization: str | None = None
+    cycle_length_weeks: int | None = None

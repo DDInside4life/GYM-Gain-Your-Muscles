@@ -104,9 +104,16 @@ def target_percent(goal: Goal, week_index: int) -> float:
     return table.get(week_kind(week_index), 0.65)
 
 
+TEST_WEIGHT_FRACTION_FROM_E1RM: Final[float] = 0.60
+TEST_EASY_WEIGHT_FRACTION_FROM_E1RM: Final[float] = 0.55
+TEST_EASY_STARTER_FRACTION: Final[float] = 0.85
+
+
 def _rpe_text(rir: float, kind: WeekKind, category: ExerciseCategory) -> str:
     if kind == WeekKind.test:
-        return "Тестовый подход. Оставьте 1–2 повтора в запасе, не до отказа."
+        if rir >= 2.5:
+            return "Лёгкий подход тестовой недели. RIR 3: оставьте 3 повтора в запасе."
+        return "Тестовый подход. RIR 2: оставьте 2 повтора в запасе, не до отказа."
     if rir <= 1.0:
         return "Тяжёлый подход. RIR 1: оставьте 1 повтор в запасе."
     if rir <= 2.0:
@@ -136,10 +143,35 @@ def _volume_weight(
     return tonnage_budget / (sets * reps_avg)
 
 
+def _test_starter_weight(
+    exercise: Exercise,
+    experience: Experience,
+    goal: Goal,
+    prev_e1rm: float | None,
+    fraction: float,
+) -> float | None:
+    """Pick a safe load for the test week.
+
+    With a prior ``e1RM`` we anchor the bar at ``fraction × e1RM`` (60 % for
+    suitable-for-test movements, 55 % for the rest). Without a prior estimate
+    we fall back to the conservative starter table — bodyweight / cardio
+    archetypes always return ``None``.
+    """
+    archetype_plate = plate_for(exercise.movement_archetype)
+    if prev_e1rm and exercise.movement_archetype not in {"bodyweight_main", "cardio"}:
+        return clamp_to_safety(
+            exercise.movement_archetype,
+            experience,
+            round_to_plate(prev_e1rm * fraction, archetype_plate),
+        )
+    return starter_weight(exercise.movement_archetype, experience, goal)
+
+
 def build_test_prescription(
     exercise: Exercise,
     experience: Experience,
     goal: Goal,
+    prev_e1rm: float | None = None,
 ) -> Prescription:
     cfg = goal_volume(goal)
     is_compound = exercise.category == ExerciseCategory.compound
@@ -147,22 +179,83 @@ def build_test_prescription(
     reps_max = cfg.reps_max_compound if is_compound else cfg.reps_max_isolation
     if exercise.equipment.value == "bodyweight":
         reps_max = max(reps_max, 15)
-    weight = starter_weight(exercise.movement_archetype, experience, goal)
+    weight = _test_starter_weight(
+        exercise, experience, goal, prev_e1rm, TEST_WEIGHT_FRACTION_FROM_E1RM,
+    )
     return Prescription(
         sets=1,
         reps_min=max(3, reps_min - 1),
         reps_max=min(20, reps_max + 2),
         rest_sec=cfg.rest_compound_sec if is_compound else cfg.rest_isolation_sec,
         weight_kg=weight,
-        target_percent_1rm=None,
-        target_rir=1.0,
-        rpe_text=_rpe_text(1.0, WeekKind.test, exercise.category),
+        target_percent_1rm=TEST_WEIGHT_FRACTION_FROM_E1RM if prev_e1rm else None,
+        target_rir=2.0,
+        rpe_text=_rpe_text(2.0, WeekKind.test, exercise.category),
         is_test_set=True,
         test_instruction=(
-            "Один рабочий подход с запасом 1–2 повтора. Не доводите до отказа, "
-            "сохраняйте чистую технику. Сохраните вес и количество повторений."
+            "Тестовый подход. Сделайте 2–3 разминочных подхода с лёгким весом, "
+            "затем один рабочий подход на максимальное количество повторений с "
+            "запасом 2 повтора (RIR 2). Не доводите до отказа, сохраняйте чистую "
+            "технику. Запомните рабочий вес и количество повторений — на их основе "
+            "пересчитаются веса оставшихся недель."
         ),
         notes=_notes_for_week(WeekKind.test, 1),
+    )
+
+
+def build_test_week_easy_prescription(
+    exercise: Exercise,
+    experience: Experience,
+    goal: Goal,
+    prev_e1rm: float | None = None,
+) -> Prescription:
+    """Light baseline used in the test week for non-test-suitable exercises.
+
+    Goal: keep the body in motion, build technique tolerance, never go to
+    failure. ~50–55 % of estimated 1RM (or ~85 % of starter when no e1RM yet),
+    RIR 3, lower per-exercise volume than the working weeks.
+    """
+    cfg = goal_volume(goal)
+    is_compound = exercise.category == ExerciseCategory.compound
+    base_sets = cfg.sets_per_compound if is_compound else cfg.sets_per_isolation
+    sets = max(2, base_sets - 1)
+    reps_min = cfg.reps_min_compound if is_compound else cfg.reps_min_isolation
+    reps_max = cfg.reps_max_compound if is_compound else cfg.reps_max_isolation
+    rest = cfg.rest_compound_sec if is_compound else cfg.rest_isolation_sec
+
+    weight: float | None = None
+    pct: float | None = None
+    archetype_plate = plate_for(exercise.movement_archetype)
+    if prev_e1rm and exercise.movement_archetype not in {"bodyweight_main", "cardio"}:
+        pct = TEST_EASY_WEIGHT_FRACTION_FROM_E1RM
+        weight = clamp_to_safety(
+            exercise.movement_archetype,
+            experience,
+            round_to_plate(prev_e1rm * pct, archetype_plate),
+        )
+    elif exercise.movement_archetype not in {"bodyweight_main", "cardio"}:
+        starter = starter_weight(exercise.movement_archetype, experience, goal)
+        weight = (
+            clamp_to_safety(
+                exercise.movement_archetype,
+                experience,
+                round_to_plate(starter * TEST_EASY_STARTER_FRACTION, archetype_plate),
+            )
+            if starter is not None else None
+        )
+
+    return Prescription(
+        sets=sets,
+        reps_min=reps_min,
+        reps_max=reps_max,
+        rest_sec=rest,
+        weight_kg=weight,
+        target_percent_1rm=pct,
+        target_rir=3.0,
+        rpe_text=_rpe_text(3.0, WeekKind.test, exercise.category),
+        is_test_set=False,
+        test_instruction="",
+        notes="Тестовая неделя · лёгкая базовая нагрузка для контроля техники.",
     )
 
 

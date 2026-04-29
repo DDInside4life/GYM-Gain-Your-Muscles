@@ -6,8 +6,11 @@ from app.models.exercise import Equipment, ExerciseCategory, MuscleGroup
 from app.models.user import Experience, Goal
 from app.services.workout.load_progression import (
     LiftRecord,
+    TEST_EASY_WEIGHT_FRACTION_FROM_E1RM,
+    TEST_WEIGHT_FRACTION_FROM_E1RM,
     WeekKind,
     build_test_prescription,
+    build_test_week_easy_prescription,
     build_working_prescription,
     double_progression_step,
     epley_one_rm,
@@ -69,6 +72,51 @@ def test_test_prescription_uses_single_set_and_russian_instruction():
     assert "запасом" in prescription.test_instruction or "запасе" in prescription.test_instruction
     assert "RIR" in prescription.rpe_text or "запас" in prescription.rpe_text
     assert prescription.weight_kg is not None
+
+
+def test_test_prescription_target_rir_is_two_and_warmups_in_instruction():
+    prescription = build_test_prescription(_ex(), Experience.intermediate, Goal.muscle_gain)
+    assert prescription.target_rir == 2.0
+    assert "разминоч" in prescription.test_instruction
+    assert "запасом 2" in prescription.test_instruction or "RIR 2" in prescription.test_instruction
+    assert "RIR 2" in prescription.rpe_text
+
+
+def test_test_prescription_uses_60_percent_when_prev_e1rm_known():
+    prescription = build_test_prescription(
+        _ex(), Experience.intermediate, Goal.muscle_gain, prev_e1rm=120.0,
+    )
+    assert prescription.weight_kg is not None
+    expected = 120.0 * TEST_WEIGHT_FRACTION_FROM_E1RM
+    assert abs(prescription.weight_kg - expected) <= 5.0
+    assert prescription.target_percent_1rm == TEST_WEIGHT_FRACTION_FROM_E1RM
+
+
+def test_test_prescription_falls_back_to_starter_when_no_e1rm():
+    prescription = build_test_prescription(_ex(), Experience.beginner, Goal.muscle_gain)
+    assert prescription.weight_kg is not None
+    assert prescription.target_percent_1rm is None
+
+
+def test_test_easy_prescription_is_lighter_and_rir_three():
+    prescription = build_test_week_easy_prescription(
+        _ex(), Experience.intermediate, Goal.muscle_gain, prev_e1rm=120.0,
+    )
+    assert prescription.is_test_set is False
+    assert prescription.target_rir == 3.0
+    assert prescription.target_percent_1rm == TEST_EASY_WEIGHT_FRACTION_FROM_E1RM
+    assert prescription.weight_kg is not None
+    assert prescription.weight_kg < 120.0 * TEST_WEIGHT_FRACTION_FROM_E1RM
+    assert "разминоч" in prescription.notes.lower() or "тестов" in prescription.notes.lower()
+
+
+def test_test_easy_prescription_handles_bodyweight_archetype():
+    bw_ex = _ex(movement_archetype="bodyweight_main", equipment=Equipment.bodyweight)
+    prescription = build_test_week_easy_prescription(
+        bw_ex, Experience.beginner, Goal.muscle_gain,
+    )
+    assert prescription.weight_kg is None
+    assert prescription.target_rir == 3.0
 
 
 def test_working_prescription_includes_target_rir_and_weight_for_compound():

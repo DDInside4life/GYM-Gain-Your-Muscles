@@ -11,14 +11,22 @@ from app.models.user import Experience
 
 INJURY_TO_CONTRA: Final[dict[str, frozenset[str]]] = {
     "knee":      frozenset({"knee", "deep_squat", "high_impact"}),
+    "knees":     frozenset({"knee", "deep_squat", "high_impact"}),
     "back":      frozenset({"spine_load", "heavy_deadlift", "back"}),
     "lower_back": frozenset({"spine_load", "heavy_deadlift", "back"}),
     "shoulder":  frozenset({"overhead_press", "bench_heavy", "shoulder"}),
+    "shoulders": frozenset({"overhead_press", "bench_heavy", "shoulder"}),
     "wrist":     frozenset({"wrist", "heavy_press"}),
+    "wrists":    frozenset({"wrist", "heavy_press"}),
     "elbow":     frozenset({"elbow"}),
+    "elbows":    frozenset({"elbow"}),
     "hip":       frozenset({"hip", "deep_squat"}),
     "ankle":     frozenset({"ankle", "high_impact"}),
     "neck":      frozenset({"neck", "spine_load"}),
+    "varicose":  frozenset({"high_impact", "deep_squat"}),
+    "varicose_veins": frozenset({"high_impact", "deep_squat"}),
+    "blood_pressure": frozenset({"valsalva", "heavy_deadlift", "high_impact"}),
+    "hypertension":   frozenset({"valsalva", "heavy_deadlift", "high_impact"}),
 }
 
 
