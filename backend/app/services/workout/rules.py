@@ -98,3 +98,43 @@ def round_to_plate(weight: float, plate: float = PLATE_INCREMENT_KG) -> float:
 
 def clamp_sets(sets: int) -> int:
     return max(MIN_SETS, min(MAX_SETS, sets))
+
+
+@dataclass(frozen=True, slots=True)
+class AutoDeloadDecision:
+    should_deload: bool
+    intensity_mult: float
+    sets_delta: int
+    reasons: tuple[str, ...]
+
+
+def decide_auto_deload(
+    *,
+    scheduled_deload: bool,
+    e1rm_drop_ratio: float | None,
+    high_effort_ratio: float | None,
+    missed_session_ratio: float | None,
+) -> AutoDeloadDecision:
+    reasons: list[str] = []
+    if e1rm_drop_ratio is not None and e1rm_drop_ratio >= 0.03:
+        reasons.append("drop_e1rm_trend")
+    if high_effort_ratio is not None and high_effort_ratio >= 0.5:
+        reasons.append("high_effort_trend")
+    if missed_session_ratio is not None and missed_session_ratio >= 0.4:
+        reasons.append("missed_session_trend")
+
+    adaptive_deload = len(reasons) >= 2
+    should_deload = scheduled_deload or adaptive_deload
+    if not should_deload:
+        return AutoDeloadDecision(
+            should_deload=False,
+            intensity_mult=1.0,
+            sets_delta=0,
+            reasons=tuple(reasons),
+        )
+    return AutoDeloadDecision(
+        should_deload=True,
+        intensity_mult=0.88 if adaptive_deload else 0.9,
+        sets_delta=-1,
+        reasons=tuple(reasons) if reasons else ("scheduled_deload",),
+    )

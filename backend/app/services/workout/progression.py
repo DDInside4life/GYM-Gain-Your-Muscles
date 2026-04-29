@@ -6,14 +6,15 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequest, NotFound
+from app.models.workout import SetLog
 from app.models.user import User
 from app.models.workout import (
     Difficulty, WorkoutDay, WorkoutExercise, WorkoutFeedback, WorkoutPlan,
 )
-from app.repositories.workout import WorkoutFeedbackRepository, WorkoutPlanRepository
+from app.repositories.workout import SetLogRepository, WorkoutFeedbackRepository, WorkoutPlanRepository
 from app.services.workout.rules import (
     DELOAD_EVERY_WEEKS, DIFFICULTY_INTENSITY_MULT, DIFFICULTY_SETS_DELTA,
-    clamp_sets, round_to_plate,
+    AutoDeloadDecision, clamp_sets, decide_auto_deload, round_to_plate,
 )
 
 
@@ -35,6 +36,7 @@ class ProgressionService:
         self.db = db
         self.plans = WorkoutPlanRepository(db)
         self.feedback = WorkoutFeedbackRepository(db)
+        self.set_logs = SetLogRepository(db)
 
     @staticmethod
     def _is_deload_week(week: int) -> bool:
@@ -71,20 +73,22 @@ class ProgressionService:
         discomfort_frozen = frozenset(discomfort)
 
         next_week = current.week_number + 1
-        deload = self._is_deload_week(next_week)
+        scheduled_deload = self._is_deload_week(next_week)
+        auto_deload = await self._auto_deload_decision(user.id, current.id, feedback, scheduled_deload)
 
         await self.plans.deactivate_all(user.id)
 
         new_plan = WorkoutPlan(
             user_id=user.id,
-            name=self._next_name(current.name, current.week_number, next_week, deload),
+            name=self._next_name(current.name, current.week_number, next_week, auto_deload.should_deload),
             week_number=next_week,
             split_type=current.split_type,
             is_active=True,
             params={
                 **(current.params or {}),
                 "progressed_from": current.id,
-                "deload": deload,
+                "deload": auto_deload.should_deload,
+                "deload_reasons": list(auto_deload.reasons),
                 "discomfort": sorted(discomfort_frozen),
             },
         )
@@ -92,7 +96,7 @@ class ProgressionService:
         await self.db.flush()
 
         for old_day in current.days:
-            self._clone_day(new_plan.id, old_day, by_day.get(old_day.id), discomfort_frozen, deload)
+            self._clone_day(new_plan.id, old_day, by_day.get(old_day.id), discomfort_frozen, auto_deload)
 
         await self.db.commit()
         fresh = await self.plans.get_with_days(new_plan.id)
@@ -105,7 +109,7 @@ class ProgressionService:
         old_day: WorkoutDay,
         fb: WorkoutFeedback | None,
         discomfort: frozenset[str],
-        deload: bool,
+        deload: AutoDeloadDecision,
     ) -> None:
         new_day = WorkoutDay(
             plan_id=new_plan_id,
@@ -120,8 +124,12 @@ class ProgressionService:
             return
 
         adj = self._compute_adjustment(fb, discomfort)
-        if deload:
-            adj = _DayAdjustment(intensity_mult=0.9, sets_delta=-1, skip_contras=adj.skip_contras)
+        if deload.should_deload:
+            adj = _DayAdjustment(
+                intensity_mult=deload.intensity_mult,
+                sets_delta=deload.sets_delta,
+                skip_contras=adj.skip_contras,
+            )
 
         for we in old_day.exercises:
             if adj.skip_contras & set(we.exercise.contraindications):
@@ -140,7 +148,7 @@ class ProgressionService:
                 reps_max=we.reps_max,
                 weight_kg=new_weight,
                 rest_sec=we.rest_sec,
-                notes="Deload" if deload else we.notes,
+                notes="Deload" if deload.should_deload else we.notes,
             ))
 
     @staticmethod
@@ -150,6 +158,52 @@ class ProgressionService:
         if marker in current_name:
             return current_name.replace(marker, f"Week {next_week}") + (suffix if not current_name.endswith(suffix) else "")
         return f"Week {next_week}{suffix}"
+
+    async def _auto_deload_decision(
+        self,
+        user_id: int,
+        plan_id: int,
+        feedback_rows: list[WorkoutFeedback],
+        scheduled_deload: bool,
+    ) -> AutoDeloadDecision:
+        missed_session_ratio = self._missed_session_ratio(feedback_rows)
+        high_effort_ratio = self._high_effort_ratio(feedback_rows)
+        e1rm_drop_ratio = await self._e1rm_drop_ratio(user_id, plan_id)
+        return decide_auto_deload(
+            scheduled_deload=scheduled_deload,
+            e1rm_drop_ratio=e1rm_drop_ratio,
+            high_effort_ratio=high_effort_ratio,
+            missed_session_ratio=missed_session_ratio,
+        )
+
+    @staticmethod
+    def _missed_session_ratio(rows: list[WorkoutFeedback]) -> float | None:
+        if not rows:
+            return None
+        missed = sum(1 for row in rows if not row.completed)
+        return missed / len(rows)
+
+    @staticmethod
+    def _high_effort_ratio(rows: list[WorkoutFeedback]) -> float | None:
+        if not rows:
+            return None
+        high = sum(1 for row in rows if row.difficulty in {Difficulty.hard, Difficulty.very_hard})
+        return high / len(rows)
+
+    async def _e1rm_drop_ratio(self, user_id: int, plan_id: int) -> float | None:
+        timeline = await self.set_logs.strength_timeline(user_id, limit=200)
+        filtered = [row for row in timeline if isinstance(row, SetLog) and row.plan_id == plan_id]
+        if len(filtered) < 8:
+            return None
+        midpoint = len(filtered) // 2
+        early = filtered[:midpoint]
+        recent = filtered[midpoint:]
+        early_avg = sum(float(item.estimated_1rm) for item in early) / len(early)
+        recent_avg = sum(float(item.estimated_1rm) for item in recent) / len(recent)
+        if early_avg <= 0:
+            return None
+        drop_ratio = max(0.0, (early_avg - recent_avg) / early_avg)
+        return round(drop_ratio, 4)
 
     async def submit_feedback(
         self,
