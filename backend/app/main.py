@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.error_handling import register_exception_handlers
 from app.core.limiter import limiter
 from app.core.security import hash_password
 from app.data.seed_content import ensure_seed_content
@@ -79,6 +79,7 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -109,9 +110,3 @@ app.include_router(api_router, prefix=settings.api_prefix)
 @app.get(f"{settings.api_prefix}/health", tags=["health"])
 async def health() -> dict:
     return {"status": "ok", "env": settings.environment}
-
-
-@app.exception_handler(Exception)
-async def unhandled(_: Request, exc: Exception):
-    logger.exception("unhandled error: %s", exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

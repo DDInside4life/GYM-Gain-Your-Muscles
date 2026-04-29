@@ -6,8 +6,31 @@ const TOKEN_KEY = "gym.tokens";
 
 export type Tokens = { access_token: string; refresh_token: string };
 
+type ApiErrorPayload = {
+  error_code?: string;
+  message?: string;
+  context?: unknown;
+  detail?: unknown;
+};
+
+const FRIENDLY_ERROR_MESSAGES: Record<string, string> = {
+  internal_error: "Сервис временно недоступен. Попробуйте еще раз.",
+  invalid_request: "Проверьте введенные данные и повторите попытку.",
+  resource_not_found: "Запрошенные данные не найдены.",
+  auth_unauthorized: "Нужно войти в аккаунт снова.",
+  access_forbidden: "У вас нет доступа к этому действию.",
+  state_conflict: "Операция не может быть выполнена в текущем состоянии данных.",
+  rate_limited: "Слишком много запросов. Попробуйте чуть позже.",
+};
+
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public detail?: unknown) {
+  constructor(
+    public status: number,
+    message: string,
+    public detail?: unknown,
+    public errorCode?: string,
+    public context?: unknown,
+  ) {
     super(message);
   }
 }
@@ -64,14 +87,19 @@ function refresh(): Promise<Tokens | null> {
 async function parseError(res: Response): Promise<ApiError> {
   const text = await res.text();
   let detail: unknown = text;
+  let payload: ApiErrorPayload | null = null;
   try {
     const parsed = JSON.parse(text);
+    payload = parsed as ApiErrorPayload;
     detail = parsed?.detail ?? parsed;
   } catch {
     /* not json */
   }
-  const msg = typeof detail === "string" ? detail : res.statusText || `HTTP ${res.status}`;
-  return new ApiError(res.status, msg, detail);
+  const errorCode = payload?.error_code;
+  const messageFromApi = payload?.message;
+  const fallback = typeof detail === "string" ? detail : res.statusText || `HTTP ${res.status}`;
+  const msg = (errorCode && FRIENDLY_ERROR_MESSAGES[errorCode]) || messageFromApi || fallback;
+  return new ApiError(res.status, msg, detail, errorCode, payload?.context);
 }
 
 export async function api<T = unknown>(path: string, opts: FetchOpts = {}): Promise<T> {
