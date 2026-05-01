@@ -64,6 +64,19 @@ export function Navbar() {
           <ThemeToggle />
           {user ? (
             <>
+              <div className="hidden sm:flex items-center gap-2 px-2">
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.full_name ?? "User"}
+                    className="h-8 w-8 rounded-full object-cover border border-[var(--border)]"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-brand-500/15 dark:bg-violet-500/20 grid place-items-center text-xs font-semibold">
+                    {(user.full_name?.[0] ?? user.email[0] ?? "U").toUpperCase()}
+                  </div>
+                )}
+              </div>
               {user.is_admin && (
                 <Link href="/admin">
                   <Button variant="outline" size="sm">Admin</Button>

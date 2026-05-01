@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Calendar, CheckCircle2, Dumbbell, Plus, RefreshCcw, Sparkles } from "lucide-react";
+import { ArrowRight, Calendar, CheckCircle2, Dumbbell, Plus, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,12 @@ export default function WorkoutsPage() {
     } finally {
       setProgressing(false);
     }
+  }
+
+  async function clearHistory() {
+    await workoutApi.clearHistory();
+    const rows = await workoutApi.history();
+    setHistory(rows);
   }
 
   return (
@@ -186,7 +192,19 @@ export default function WorkoutsPage() {
       )}
 
       <Card>
-        <CardHeader><CardTitle>История программ</CardTitle></CardHeader>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>История программ</CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={clearHistory}
+              disabled={history.length === 0}
+            >
+              <Trash2 size={14} /> Очистить историю
+            </Button>
+          </div>
+        </CardHeader>
         {history.length === 0 ? (
           <div className="text-sm text-muted text-center py-6">
             Программ пока нет. Создайте свою первую через анкету.

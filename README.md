@@ -1,8 +1,8 @@
 # GYM — Gain Your Muscles
 
-Production fitness web app: deterministic template-based workout planning,
-manual nutrition tracking with a calorie calculator, user progress, and
-community content (blog + FAQ). Russian UI.
+Production fitness web app: deterministic questionnaire-based workout planning,
+manual nutrition tracking with a calorie calculator, user progress, and educational
+content (blog + FAQ). Russian UI.
 
 ## Stack
 - **Frontend:** Next.js 15 (App Router) · TypeScript · Tailwind · Framer Motion · Lucide
@@ -32,6 +32,19 @@ routes  ─▶  services  ─▶  repositories  ─▶  models (SQLAlchemy)
 ```
 
 Feature-based frontend: `app/` routes, `components/` primitives + feature UIs, `features/` per-domain API + types, `lib/` shared infra.
+
+## Project in simple words (for defense)
+
+If you need to explain the project quickly:
+
+1. User fills a questionnaire once.
+2. Backend builds a multi-week training plan from fixed rules (no random chaos).
+3. Week 1 is a test week to estimate real strength safely.
+4. Logged sets are used to recalculate working weights for following weeks.
+5. Progression logic can reduce load/volume when signs of overfatigue or low compliance appear.
+6. Frontend shows not only numbers, but also explanation: **why this weight was chosen**.
+7. Critical write operations are idempotent and atomic (safe retry, no partial writes).
+8. Structured logs and product metrics are collected for production observability.
 
 ## Workout module — design rules
 
@@ -108,6 +121,6 @@ npm i && npm run dev
 
 ```bash
 cd backend
-pytest -q          # 112 unit tests covering filtering, template picker,
+pytest -q          # unit tests covering filtering, progression, periodization,
                    # equipment / injury enforcement, nutrition schemas, etc.
 ```

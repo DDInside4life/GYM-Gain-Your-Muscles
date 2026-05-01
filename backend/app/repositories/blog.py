@@ -31,3 +31,13 @@ class BlogPostRepository(BaseRepository[BlogPost]):
         )
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
+
+    async def list_all(self, limit: int = 100, offset: int = 0) -> list[BlogPost]:
+        stmt = (
+            select(BlogPost)
+            .order_by(desc(BlogPost.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())

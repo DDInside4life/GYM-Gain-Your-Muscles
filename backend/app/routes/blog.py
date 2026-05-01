@@ -25,6 +25,17 @@ async def list_posts(db: DbSession, limit: int = Query(20, le=100), offset: int 
     return [_to_read(p) for p in posts]
 
 
+@router.get("/admin/posts", response_model=list[BlogPostRead])
+async def list_posts_admin(
+    _: CurrentAdmin,
+    db: DbSession,
+    limit: int = Query(100, le=200),
+    offset: int = 0,
+) -> list[BlogPostRead]:
+    posts = await BlogPostRepository(db).list_all(limit=limit, offset=offset)
+    return [_to_read(p) for p in posts]
+
+
 @router.get("/posts/{slug}", response_model=BlogPostRead)
 async def get_post(slug: str, db: DbSession) -> BlogPostRead:
     post = await BlogPostRepository(db).get_by_slug(slug)

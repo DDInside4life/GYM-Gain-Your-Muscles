@@ -17,6 +17,7 @@ import type {
 export const workoutApi = {
   current: () => api<WorkoutPlan | null>("/workouts/current", { auth: true }),
   history: () => api<WorkoutPlan[]>("/workouts/history", { auth: true }),
+  clearHistory: () => api<{ deleted: number }>("/workouts/history", { method: "DELETE", auth: true }),
   predefined: () => api<Array<{ id: number; slug: string; name: string; days_per_week: number; level: string; split_type: string; description: string }>>("/workouts/predefined", { auth: true }),
   templates: () => api<WorkoutTemplate[]>("/templates", { auth: true }),
   generate: (payload: GenerateInput) =>

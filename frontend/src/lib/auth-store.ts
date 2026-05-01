@@ -7,6 +7,7 @@ export type User = {
   id: number;
   email: string;
   full_name: string | null;
+  avatar_url?: string | null;
   is_admin: boolean;
   sex: "male" | "female" | null;
   weight_kg: number | null;

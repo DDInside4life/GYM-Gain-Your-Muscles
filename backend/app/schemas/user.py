@@ -15,6 +15,7 @@ class UserBase(BaseModel):
 
 class UserProfileUpdate(BaseModel):
     full_name: str | None = Field(default=None, max_length=120)
+    avatar_url: str | None = Field(default=None, max_length=400)
     sex: Sex | None = None
     birth_date: date | None = None
     height_cm: float | None = Field(default=None, gt=50, lt=260)
@@ -56,6 +57,7 @@ class UserProfileUpdate(BaseModel):
 class UserRead(ORMModel, TimestampMixin):
     email: EmailStr
     full_name: str | None
+    avatar_url: str | None
     is_active: bool
     is_admin: bool
     sex: Sex | None

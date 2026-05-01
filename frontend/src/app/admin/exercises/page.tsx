@@ -14,7 +14,7 @@ const EQUIPS: Equipment[] = ["bodyweight","barbell","dumbbell","machine","cable"
 export default function AdminExercisesPage() {
   const [items, setItems] = useState<Exercise[]>([]);
   const [form, setForm] = useState({
-    slug: "", name: "", description: "",
+    slug: "", name: "", name_ru: "", description: "", image_url: "",
     primary_muscle: "chest" as MuscleGroup,
     equipment: "dumbbell" as Equipment,
     category: "compound" as "compound" | "isolation" | "cardio" | "mobility",
@@ -29,13 +29,14 @@ export default function AdminExercisesPage() {
       method: "POST",
       body: JSON.stringify({
         ...form,
+        name_en: null,
         secondary_muscles: [],
         contraindications: [],
         is_active: true,
       }),
       auth: true,
     });
-    setForm({ ...form, slug: "", name: "" });
+    setForm({ ...form, slug: "", name: "", name_ru: "", image_url: "" });
     load();
   }
 
@@ -50,7 +51,9 @@ export default function AdminExercisesPage() {
         <CardHeader><CardTitle>Новое упражнение</CardTitle></CardHeader>
         <div className="grid md:grid-cols-3 gap-3">
           <div><Label>Slug</Label><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} /></div>
-          <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><Label>Name (EN)</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><Label>Name (RU)</Label><Input value={form.name_ru} onChange={(e) => setForm({ ...form, name_ru: e.target.value })} /></div>
+          <div className="md:col-span-2"><Label>Image URL</Label><Input value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} /></div>
           <div>
             <Label>Muscle</Label>
             <Select value={form.primary_muscle} onChange={(e) => setForm({ ...form, primary_muscle: e.target.value as MuscleGroup })}>
@@ -82,9 +85,16 @@ export default function AdminExercisesPage() {
         <div className="grid md:grid-cols-2 gap-2">
           {items.map((e) => (
             <div key={e.id} className="glass-card p-3 flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-3 min-w-0">
+                {e.image_url ? (
+                  <img src={e.image_url} alt={e.name} className="h-10 w-10 rounded-md object-cover border border-[var(--border)]" />
+                ) : (
+                  <div className="h-10 w-10 rounded-md bg-black/5 dark:bg-white/5" />
+                )}
+                <div className="min-w-0">
                 <div className="text-sm font-semibold">{e.name}</div>
                 <div className="text-[11px] text-muted">{e.primary_muscle} · {e.equipment} · D{e.difficulty}</div>
+                </div>
               </div>
               <Button size="sm" variant="ghost" onClick={() => remove(e.slug)}><Trash2 size={14} /></Button>
             </div>

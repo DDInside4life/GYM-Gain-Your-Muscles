@@ -123,6 +123,13 @@ async def history(user: CurrentUser, db: DbSession) -> list[WorkoutPlanRead]:
     return [WorkoutPlanRead.model_validate(p) for p in items]
 
 
+@router.delete("/history", status_code=status.HTTP_200_OK)
+async def clear_history(user: CurrentUser, db: DbSession) -> dict[str, int]:
+    deleted = await WorkoutPlanRepository(db).clear_history(user.id)
+    await db.commit()
+    return {"deleted": deleted}
+
+
 @router.get("/predefined", response_model=list[dict])
 async def predefined_programs(db: DbSession) -> list[dict]:
     """Read-only catalog of seeded templates kept as inspiration only."""

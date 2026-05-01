@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -79,6 +79,14 @@ class WorkoutPlanRepository(BaseRepository[WorkoutPlan]):
             .where(WorkoutPlan.user_id == user_id, WorkoutPlan.is_active.is_(True))
             .values(is_active=False)
         )
+
+    async def clear_history(self, user_id: int) -> int:
+        stmt = delete(WorkoutPlan).where(
+            WorkoutPlan.user_id == user_id,
+            WorkoutPlan.is_active.is_(False),
+        )
+        result = await self.db.execute(stmt)
+        return int(result.rowcount or 0)
 
 
 class WorkoutFeedbackRepository(BaseRepository[WorkoutFeedback]):

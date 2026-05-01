@@ -19,6 +19,7 @@ import type { Experience, Exercise, Goal } from "@/features/workout/types";
 
 type ProfileForm = {
   full_name: string;
+  avatar_url: string;
   sex: "" | "male" | "female";
   height_cm: number;
   weight_kg: number;
@@ -40,6 +41,7 @@ export default function ProfilePage() {
 
   const [form, setForm] = useState<ProfileForm>({
     full_name: user.full_name ?? "",
+    avatar_url: user.avatar_url ?? "",
     sex: user.sex ?? "",
     height_cm: user.height_cm ?? 175,
     weight_kg: user.weight_kg ?? 75,
@@ -58,6 +60,7 @@ export default function ProfilePage() {
     setForm((prev) => ({
       ...prev,
       full_name: user.full_name ?? prev.full_name,
+      avatar_url: user.avatar_url ?? prev.avatar_url,
       sex: (user.sex ?? prev.sex) as ProfileForm["sex"],
       height_cm: user.height_cm ?? prev.height_cm,
       weight_kg: user.weight_kg ?? prev.weight_kg,
@@ -110,6 +113,7 @@ export default function ProfilePage() {
         method: "PUT",
         body: JSON.stringify({
           full_name: form.full_name || undefined,
+          avatar_url: form.avatar_url || undefined,
           sex: form.sex || undefined,
           height_cm: Number(form.height_cm),
           weight_kg: Number(form.weight_kg),
@@ -141,6 +145,14 @@ export default function ProfilePage() {
           <div>
             <Label>Имя</Label>
             <Input value={form.full_name} onChange={(e) => setField("full_name", e.target.value)} />
+          </div>
+          <div>
+            <Label>Фото профиля (URL)</Label>
+            <Input
+              placeholder="https://..."
+              value={form.avatar_url}
+              onChange={(e) => setField("avatar_url", e.target.value)}
+            />
           </div>
           <div>
             <Label>Коэффициент активности</Label>

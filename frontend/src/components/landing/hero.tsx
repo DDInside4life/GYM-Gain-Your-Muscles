@@ -45,17 +45,6 @@ export function Hero() {
                 Сгенерировать тренировку <ArrowRight size={18} />
               </Button>
             </Link>
-            <div className="flex items-center gap-3">
-              <div className="flex -space-x-2">
-                {["#ff5f4c", "#a855f7", "#22c55e", "#eab308"].map((c, i) => (
-                  <div key={i} className="h-8 w-8 rounded-full border-2 border-[var(--bg)]" style={{ background: c }} />
-                ))}
-              </div>
-              <div>
-                <div className="font-bold text-sm">10K+</div>
-                <div className="text-xs text-muted">довольных атлетов</div>
-              </div>
-            </div>
           </div>
         </motion.div>
 

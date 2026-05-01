@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Trash2 } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { workoutApi } from "@/features/workout/api";
 import type { WorkoutPlan } from "@/features/workout/types";
 import { E1rmChart } from "@/components/dashboard/e1rm-chart";
@@ -37,6 +39,12 @@ export default function WorkoutsHistoryPage() {
     [plans],
   );
 
+  async function clearHistory() {
+    await workoutApi.clearHistory();
+    setPlans([]);
+    setProgress({});
+  }
+
   return (
     <div className="space-y-4">
       <Link href="/dashboard/workouts" className="text-sm text-muted hover:text-inherit">
@@ -44,7 +52,12 @@ export default function WorkoutsHistoryPage() {
       </Link>
       <Card>
         <CardHeader>
-          <CardTitle>История мезоциклов</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>История мезоциклов</CardTitle>
+            <Button size="sm" variant="outline" onClick={clearHistory} disabled={sorted.length === 0}>
+              <Trash2 size={14} /> Очистить историю
+            </Button>
+          </div>
         </CardHeader>
       </Card>
       {sorted.map((plan) => (

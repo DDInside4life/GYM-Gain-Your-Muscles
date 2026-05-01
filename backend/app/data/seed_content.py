@@ -59,6 +59,56 @@ Decrease or hold when:
 - Joint discomfort accumulates.
 """,
     },
+    {
+        "slug": "rir-and-rpe-for-better-progression",
+        "title": "RIR & RPE: practical auto-regulation",
+        "excerpt": "How to use RIR and RPE to push progress without burning out.",
+        "content_md": """# RIR & RPE: practical auto-regulation
+
+RIR (reps in reserve) shows how many clean reps are left in the tank.
+
+- RIR 3-4: technique work and easier accumulation
+- RIR 2: core work zone for stable progression
+- RIR 0-1: rare hard exposure, not every session
+
+In this project test week uses **RIR 2** to estimate strength safely and then
+recalculate working weights.
+""",
+    },
+    {
+        "slug": "weekly-volume-what-actually-drives-growth",
+        "title": "Weekly volume: what drives growth",
+        "excerpt": "A simple way to manage weekly sets and avoid junk volume.",
+        "content_md": """# Weekly volume: what drives growth
+
+For most lifters, progress comes from sustainable weekly quality volume.
+
+Rules of thumb:
+
+1. Start with moderate weekly sets per muscle.
+2. Increase only when recovery stays good.
+3. If performance drops for several sessions, reduce stress and recover.
+
+Consistency beats random high-volume spikes.
+""",
+    },
+    {
+        "slug": "deload-weeks-without-losing-momentum",
+        "title": "Deload weeks without losing momentum",
+        "excerpt": "Why deloads help long-term gains and how to run them correctly.",
+        "content_md": """# Deload weeks without losing momentum
+
+Deload is not a step back - it is a strategic reduction of fatigue.
+
+Typical deload setup:
+
+- Lower load (~10%)
+- Lower set count (1-2 sets less per exercise)
+- Keep movement quality high
+
+After deload, most athletes return stronger and more stable.
+""",
+    },
 ]
 
 

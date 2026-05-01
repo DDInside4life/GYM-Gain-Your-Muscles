@@ -80,6 +80,7 @@ def test_test_prescription_target_rir_is_two_and_warmups_in_instruction():
     assert "разминоч" in prescription.test_instruction
     assert "запасом 2" in prescription.test_instruction or "RIR 2" in prescription.test_instruction
     assert "RIR 2" in prescription.rpe_text
+    assert len(prescription.test_instruction) <= 240
 
 
 def test_test_prescription_uses_60_percent_when_prev_e1rm_known():
